@@ -495,21 +495,23 @@ export default function Solped({ isMobile = false }) {
 
       {/* ── Table ────────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <table style={{ width: '100%', minWidth: 1060, borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, tableLayout: 'fixed' }}>
-          <colgroup>
-            <col style={{ width: 38  }} />
-            <col style={{ width: 112 }} />
-            <col />
-            <col style={{ width: 148 }} />
-            <col style={{ width: 90  }} />
-            <col style={{ width: 118 }} />
-            <col style={{ width: 90  }} />
-            <col style={{ width: 108 }} />
-            <col style={{ width: 155 }} />
-          </colgroup>
+        <table style={{ width: '100%', minWidth: isMobile ? 380 : 1060, borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, tableLayout: isMobile ? 'auto' : 'fixed' }}>
+          {!isMobile && (
+            <colgroup>
+              <col style={{ width: 38  }} />
+              <col style={{ width: 112 }} />
+              <col />
+              <col style={{ width: 148 }} />
+              <col style={{ width: 90  }} />
+              <col style={{ width: 118 }} />
+              <col style={{ width: 90  }} />
+              <col style={{ width: 108 }} />
+              <col style={{ width: 155 }} />
+            </colgroup>
+          )}
           <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: C.card, boxShadow: `0 1px 0 ${C.border}` }}>
             <tr>
-              <th style={{ padding: '10px 0 10px 12px', textAlign: 'center' }}>
+              <th style={{ padding: '10px 0 10px 12px', textAlign: 'center', width: 34 }}>
                 <input
                   type="checkbox"
                   ref={el => { if (el) el.indeterminate = someSelected && !allSelected }}
@@ -518,38 +520,51 @@ export default function Solped({ isMobile = false }) {
                   style={{ cursor: 'pointer', accentColor: C.primary }}
                 />
               </th>
-              {['SOLPED', 'Descripción', 'Categoría', 'Cant.', 'Valor', 'Urgencia', 'Solicitante', 'Área'].map(h => (
-                <th key={h} style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
-              ))}
+              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>SOLPED</th>}
+              <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em' }}>Descripción</th>
+              <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Categoría</th>
+              <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Cant.</th>
+              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Valor</th>}
+              <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Urgencia</th>
+              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Solicitante</th>}
+              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Área</th>}
             </tr>
           </thead>
           <tbody>
             {filtrada.length === 0 ? (
               <tr>
-                <td colSpan={9} style={{ padding: 48, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
+                <td colSpan={isMobile ? 5 : 9} style={{ padding: 48, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
                   Sin resultados para los filtros aplicados.
                 </td>
               </tr>
             ) : filtrada.map(it => (
               <tr key={it.id}
                 style={{ borderBottom: `1px solid ${C.border}30`, background: selected.has(it.id) ? `${C.primary}08` : 'transparent', verticalAlign: 'middle' }}>
-                <td style={{ padding: '7px 0 7px 12px', textAlign: 'center' }}>
+                <td style={{ padding: '7px 0 7px 12px', textAlign: 'center', width: 34 }}>
                   <input type="checkbox" checked={selected.has(it.id)} onChange={() => toggleOne(it.id)}
                     style={{ cursor: 'pointer', accentColor: C.primary }} />
                 </td>
 
-                <td style={{ padding: '7px 8px 7px 0' }}>
-                  <div style={{ fontWeight: 600, color: C.primary }}>{it.solped}</div>
-                  <div style={{ fontSize: 10, color: C.muted }}>pos. {it.posicion}</div>
-                </td>
+                {!isMobile && (
+                  <td style={{ padding: '7px 8px 7px 0' }}>
+                    <div style={{ fontWeight: 600, color: C.primary }}>{it.solped}</div>
+                    <div style={{ fontSize: 10, color: C.muted }}>pos. {it.posicion}</div>
+                  </td>
+                )}
 
-                <td style={{ padding: '7px 8px 7px 0', overflow: 'hidden' }}>
+                <td style={{ padding: '7px 8px 7px 0', overflow: 'hidden', maxWidth: isMobile ? 160 : undefined }}>
+                  {isMobile && it.solped && (
+                    <div style={{ fontSize: 10, color: C.primary, marginBottom: 2 }}>{it.solped} · pos.{it.posicion}</div>
+                  )}
                   <div title={it.textoBreve}
-                    style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.text }}>
+                    style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.text, fontWeight: isMobile ? 500 : 400 }}>
                     {it.textoBreve || <span style={{ color: C.muted }}>—</span>}
                   </div>
                   {it.codigoMaterial && (
                     <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{it.codigoMaterial}</div>
+                  )}
+                  {isMobile && (
+                    <div style={{ fontSize: 10, color: C.text, marginTop: 2, fontWeight: 500 }}>{it.moneda} {fmtMoney(it.valorTotal)}</div>
                   )}
                 </td>
 
@@ -562,25 +577,31 @@ export default function Solped({ isMobile = false }) {
                   <div style={{ fontSize: 10, color: C.muted }}>{it.unidad}</div>
                 </td>
 
-                <td style={{ padding: '7px 8px 7px 0', whiteSpace: 'nowrap' }}>
-                  <div style={{ fontWeight: 600, color: C.text }}>{it.moneda} {fmtMoney(it.valorTotal)}</div>
-                  {it.moneda === 'PEN' && (
-                    <div style={{ fontSize: 10, color: C.muted }}>≈ US$ {fmtMoney(toUSD(it.valorTotal, it.moneda))}</div>
-                  )}
-                </td>
+                {!isMobile && (
+                  <td style={{ padding: '7px 8px 7px 0', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontWeight: 600, color: C.text }}>{it.moneda} {fmtMoney(it.valorTotal)}</div>
+                    {it.moneda === 'PEN' && (
+                      <div style={{ fontSize: 10, color: C.muted }}>≈ US$ {fmtMoney(toUSD(it.valorTotal, it.moneda))}</div>
+                    )}
+                  </td>
+                )}
 
                 <td style={{ padding: '7px 8px 7px 0' }}>
                   <div style={{ fontWeight: 600, color: urgColor(it.diasDesde) }}>{it.diasDesde}d</div>
                   <div style={{ fontSize: 10, color: urgColor(it.diasDesde) }}>{urgLabel(it.diasDesde)}</div>
                 </td>
 
-                <td style={{ padding: '7px 8px 7px 0', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {it.solicitante || '—'}
-                </td>
+                {!isMobile && (
+                  <td style={{ padding: '7px 8px 7px 0', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {it.solicitante || '—'}
+                  </td>
+                )}
 
-                <td style={{ padding: '7px 0 7px 0', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }} title={it.areaNecesidad}>
-                  {it.areaNecesidad || '—'}
-                </td>
+                {!isMobile && (
+                  <td style={{ padding: '7px 0 7px 0', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }} title={it.areaNecesidad}>
+                    {it.areaNecesidad || '—'}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

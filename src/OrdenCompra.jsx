@@ -169,64 +169,124 @@ function FormOC({ data, setData, onPreview, isMobile }) {
             + Agregar ítem
           </button>
         </div>
-        <div style={{ overflowX: 'auto', borderRadius: 8, border: `1px solid ${C.border}` }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, minWidth: 900 }}>
-            <thead>
-              <tr>
-                <th style={{ ...TH, width: 80 }}>Código</th>
-                <th style={{ ...TH, width: 190 }}>Descripción</th>
-                <th style={TH}>Especificación técnica</th>
-                <th style={{ ...TH, width: 55 }}>UM</th>
-                <th style={{ ...TH, width: 75 }}>Cant.</th>
-                <th style={{ ...TH, width: 95 }}>P. Unit.</th>
-                <th style={{ ...TH, width: 95, textAlign: 'right' }}>Subtotal</th>
-                <th style={{ ...TH, width: 125 }}>F. Entrega</th>
-                <th style={{ ...TH, width: 34 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map(it => {
-                const sub = (Number(it.cantidad) || 0) * (Number(it.precioUnitario) || 0)
-                return (
-                  <tr key={it.id} style={{ borderTop: `1px solid ${C.border}` }}>
-                    <td style={TD}><input value={it.codigo} onChange={e => setItem(it.id, 'codigo', e.target.value)} style={cellInp} /></td>
-                    <td style={TD}><input value={it.descripcion} onChange={e => setItem(it.id, 'descripcion', e.target.value)} style={cellInp} /></td>
-                    <td style={TD}><textarea value={it.especificacion} onChange={e => setItem(it.id, 'especificacion', e.target.value)} rows={2} style={{ ...cellInp, resize: 'vertical', minHeight: 52 }} /></td>
-                    <td style={TD}><input value={it.unidad} onChange={e => setItem(it.id, 'unidad', e.target.value)} style={cellInp} /></td>
-                    <td style={TD}><input type="number" min="0" value={it.cantidad} onChange={e => setItem(it.id, 'cantidad', e.target.value)} style={{ ...cellInp, textAlign: 'right' }} /></td>
-                    <td style={TD}><input type="number" min="0" step="0.01" value={it.precioUnitario} onChange={e => setItem(it.id, 'precioUnitario', e.target.value)} style={{ ...cellInp, textAlign: 'right' }} /></td>
-                    <td style={{ ...TD, textAlign: 'right', fontWeight: 600, color: C.primary, verticalAlign: 'middle' }}>{sub.toFixed(2)}</td>
-                    <td style={TD}><input type="date" value={it.fechaEntrega} onChange={e => setItem(it.id, 'fechaEntrega', e.target.value)} style={cellInp} /></td>
-                    <td style={{ ...TD, verticalAlign: 'middle' }}>
-                      <button onClick={() => removeItem(it.id)}
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 4, background: `${C.danger}15`, border: `1px solid ${C.danger}40`, color: C.danger, cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop: `2px solid ${C.border}` }}>
-                <td colSpan={5} />
-                <td style={{ padding: '7px 8px', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'right' }}>Valor Venta</td>
-                <td style={{ padding: '7px 8px', textAlign: 'right', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text }}>{valorVenta.toFixed(2)}</td>
-                <td colSpan={2} />
-              </tr>
-              <tr>
-                <td colSpan={5} />
-                <td style={{ padding: '4px 8px', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'right' }}>IGV 18%</td>
-                <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>{igv.toFixed(2)}</td>
-                <td colSpan={2} />
-              </tr>
-              <tr style={{ borderTop: `1px solid ${C.border}` }}>
-                <td colSpan={5} />
-                <td style={{ padding: '7px 8px', fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 700, color: C.primary, textAlign: 'right' }}>TOTAL</td>
-                <td style={{ padding: '7px 8px', textAlign: 'right', fontFamily: 'Inter', fontSize: 15, fontWeight: 900, color: C.primary }}>{total.toFixed(2)}</td>
-                <td colSpan={2} />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+        {isMobile ? (
+          /* ── Mobile: stacked item cards ── */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {data.items.map((it, idx) => {
+              const sub = (Number(it.cantidad) || 0) * (Number(it.precioUnitario) || 0)
+              return (
+                <div key={it.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '12px 12px 8px', background: C.card, position: 'relative' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, color: C.primary }}>Ítem {idx + 1}</span>
+                    <button onClick={() => removeItem(it.id)}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 4, background: `${C.danger}15`, border: `1px solid ${C.danger}40`, color: C.danger, cursor: 'pointer', fontSize: 14 }}>×</button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>Código</span>
+                      <input value={it.codigo} onChange={e => setItem(it.id, 'codigo', e.target.value)} style={cellInp} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>UM</span>
+                      <input value={it.unidad} onChange={e => setItem(it.id, 'unidad', e.target.value)} style={cellInp} />
+                    </label>
+                  </div>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 8 }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>Descripción</span>
+                    <input value={it.descripcion} onChange={e => setItem(it.id, 'descripcion', e.target.value)} style={cellInp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 8 }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>Especificación</span>
+                    <textarea value={it.especificacion} onChange={e => setItem(it.id, 'especificacion', e.target.value)} rows={2} style={{ ...cellInp, resize: 'none' }} />
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>Cantidad</span>
+                      <input type="number" min="0" value={it.cantidad} onChange={e => setItem(it.id, 'cantidad', e.target.value)} style={{ ...cellInp, textAlign: 'right' }} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>P. Unit.</span>
+                      <input type="number" min="0" step="0.01" value={it.precioUnitario} onChange={e => setItem(it.id, 'precioUnitario', e.target.value)} style={{ ...cellInp, textAlign: 'right' }} />
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>Subtotal</span>
+                      <div style={{ ...cellInp, textAlign: 'right', color: C.primary, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>{sub.toFixed(2)}</div>
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 8 }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>F. Entrega</span>
+                    <input type="date" value={it.fechaEntrega} onChange={e => setItem(it.id, 'fechaEntrega', e.target.value)} style={cellInp} />
+                  </label>
+                </div>
+              )
+            })}
+            <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>Valor Venta: <strong style={{ color: C.text }}>{valorVenta.toFixed(2)}</strong></div>
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>IGV 18%: {igv.toFixed(2)}</div>
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: C.primary }}>TOTAL: {total.toFixed(2)}</div>
+            </div>
+          </div>
+        ) : (
+          /* ── Desktop: full table ── */
+          <div style={{ overflowX: 'auto', borderRadius: 8, border: `1px solid ${C.border}` }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, minWidth: 900 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...TH, width: 80 }}>Código</th>
+                  <th style={{ ...TH, width: 190 }}>Descripción</th>
+                  <th style={TH}>Especificación técnica</th>
+                  <th style={{ ...TH, width: 55 }}>UM</th>
+                  <th style={{ ...TH, width: 75 }}>Cant.</th>
+                  <th style={{ ...TH, width: 95 }}>P. Unit.</th>
+                  <th style={{ ...TH, width: 95, textAlign: 'right' }}>Subtotal</th>
+                  <th style={{ ...TH, width: 125 }}>F. Entrega</th>
+                  <th style={{ ...TH, width: 34 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map(it => {
+                  const sub = (Number(it.cantidad) || 0) * (Number(it.precioUnitario) || 0)
+                  return (
+                    <tr key={it.id} style={{ borderTop: `1px solid ${C.border}` }}>
+                      <td style={TD}><input value={it.codigo} onChange={e => setItem(it.id, 'codigo', e.target.value)} style={cellInp} /></td>
+                      <td style={TD}><input value={it.descripcion} onChange={e => setItem(it.id, 'descripcion', e.target.value)} style={cellInp} /></td>
+                      <td style={TD}><textarea value={it.especificacion} onChange={e => setItem(it.id, 'especificacion', e.target.value)} rows={2} style={{ ...cellInp, resize: 'vertical', minHeight: 52 }} /></td>
+                      <td style={TD}><input value={it.unidad} onChange={e => setItem(it.id, 'unidad', e.target.value)} style={cellInp} /></td>
+                      <td style={TD}><input type="number" min="0" value={it.cantidad} onChange={e => setItem(it.id, 'cantidad', e.target.value)} style={{ ...cellInp, textAlign: 'right' }} /></td>
+                      <td style={TD}><input type="number" min="0" step="0.01" value={it.precioUnitario} onChange={e => setItem(it.id, 'precioUnitario', e.target.value)} style={{ ...cellInp, textAlign: 'right' }} /></td>
+                      <td style={{ ...TD, textAlign: 'right', fontWeight: 600, color: C.primary, verticalAlign: 'middle' }}>{sub.toFixed(2)}</td>
+                      <td style={TD}><input type="date" value={it.fechaEntrega} onChange={e => setItem(it.id, 'fechaEntrega', e.target.value)} style={cellInp} /></td>
+                      <td style={{ ...TD, verticalAlign: 'middle' }}>
+                        <button onClick={() => removeItem(it.id)}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 4, background: `${C.danger}15`, border: `1px solid ${C.danger}40`, color: C.danger, cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: `2px solid ${C.border}` }}>
+                  <td colSpan={5} />
+                  <td style={{ padding: '7px 8px', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'right' }}>Valor Venta</td>
+                  <td style={{ padding: '7px 8px', textAlign: 'right', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text }}>{valorVenta.toFixed(2)}</td>
+                  <td colSpan={2} />
+                </tr>
+                <tr>
+                  <td colSpan={5} />
+                  <td style={{ padding: '4px 8px', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'right' }}>IGV 18%</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>{igv.toFixed(2)}</td>
+                  <td colSpan={2} />
+                </tr>
+                <tr style={{ borderTop: `1px solid ${C.border}` }}>
+                  <td colSpan={5} />
+                  <td style={{ padding: '7px 8px', fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 700, color: C.primary, textAlign: 'right' }}>TOTAL</td>
+                  <td style={{ padding: '7px 8px', textAlign: 'right', fontFamily: 'Inter', fontSize: 15, fontWeight: 900, color: C.primary }}>{total.toFixed(2)}</td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* CONDICIONES */}

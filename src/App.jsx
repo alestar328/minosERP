@@ -228,7 +228,7 @@ const NAV_SECONDARY = []
 // ─── BOTTOM NAV (mobile) ──────────────────────────────────────────────────────
 function BottomNav({ active, onNav }) {
   return (
-    <div className="no-print" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: 56, background: C.card, borderTop: `1px solid ${C.border}`, display: 'flex', alignItems: 'stretch', zIndex: 200, boxShadow: '0 -2px 8px rgba(0,0,0,0.08)' }}>
+    <div className="no-print" style={{ height: 56, flexShrink: 0, background: C.card, borderTop: `1px solid ${C.border}`, display: 'flex', alignItems: 'stretch', boxShadow: '0 -2px 8px rgba(0,0,0,0.08)' }}>
       {NAV_PRIMARY.map(({ id, label, icon: Icon }) => {
         const on = active === id
         return (
@@ -382,21 +382,25 @@ function Dashboard({ isMobile }) {
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 320px', gap: 16 }}>
         <Card className="p-4" style={{ overflowX: 'auto' }}>
           <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>Últimas Órdenes de Compra</div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, minWidth: isMobile ? 480 : 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12 }}>
             <thead>
               <tr style={{ color: C.muted, borderBottom: `1px solid ${C.border}` }}>
-                {['N° OC', 'Proveedor', 'Monto', 'Estado'].map(h => (
-                  <th key={h} style={{ padding: '0 12px 8px 0', textAlign: 'left', fontWeight: 500 }}>{h}</th>
-                ))}
+                <th style={{ padding: '0 10px 8px 0', textAlign: 'left', fontWeight: 500 }}>N° OC</th>
+                <th style={{ padding: '0 10px 8px 0', textAlign: 'left', fontWeight: 500 }}>Proveedor</th>
+                {!isMobile && <th style={{ padding: '0 10px 8px 0', textAlign: 'left', fontWeight: 500 }}>Monto</th>}
+                <th style={{ padding: '0 0 8px 0', textAlign: 'left', fontWeight: 500 }}>Estado</th>
               </tr>
             </thead>
             <tbody>
               {recentOCs.map((r, i) => (
                 <tr key={i} style={{ borderBottom: `1px solid ${C.border}40` }}>
-                  <td style={{ padding: '10px 12px 10px 0', color: C.primary }}>{r.oc}</td>
-                  <td style={{ padding: '10px 12px 10px 0', color: C.text }}>{r.proveedor}</td>
-                  <td style={{ padding: '10px 12px 10px 0', color: C.text, fontWeight: 600 }}>{fmt(r.monto)}</td>
-                  <td style={{ padding: '10px 0 10px 0' }}><Badge>{r.estado}</Badge></td>
+                  <td style={{ padding: '9px 10px 9px 0', color: C.primary, whiteSpace: 'nowrap', fontSize: isMobile ? 11 : 12 }}>{r.oc}</td>
+                  <td style={{ padding: '9px 10px 9px 0', color: C.text }}>
+                    <div>{r.proveedor}</div>
+                    {isMobile && <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{fmt(r.monto)}</div>}
+                  </td>
+                  {!isMobile && <td style={{ padding: '9px 10px 9px 0', color: C.text, fontWeight: 600 }}>{fmt(r.monto)}</td>}
+                  <td style={{ padding: '9px 0 9px 0' }}><Badge>{r.estado}</Badge></td>
                 </tr>
               ))}
             </tbody>
@@ -847,11 +851,11 @@ export default function App() {
       {!isMobile && <Sidebar active={view} onNav={setView} />}
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0 }}>
         <Topbar title={title} isMobile={isMobile} viewMode={viewMode} onToggleViewMode={toggleViewMode} />
-        <div className="print-content" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', paddingBottom: isMobile ? 56 : 0 }}>
+        <div className="print-content" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <View isMobile={isMobile} />
         </div>
+        {isMobile && <BottomNav active={view} onNav={setView} />}
       </div>
-      {isMobile && <BottomNav active={view} onNav={setView} />}
     </div>
   )
 }
