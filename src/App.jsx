@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
+import Solped from './Solped.jsx'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
 import {
   LayoutDashboard, Users, ShoppingCart, FileText, TrendingUp, Package,
-  Bell, Plus, Eye, X, Calendar, Zap, BarChart2, CheckCircle, Search
+  Bell, Plus, Eye, X, Calendar, Zap, BarChart2, CheckCircle, Search, ClipboardList
 } from 'lucide-react'
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
@@ -219,14 +220,102 @@ function GaugeMini({ label, value }) {
   )
 }
 
+// ─── CATEGORÍAS PALETTE ───────────────────────────────────────────────────────
+const CATEGORIAS = [
+  { nombre: 'Repuestos',        bg: '#F0997B', fg: '#3d1200' },
+  { nombre: 'Servicios',        bg: '#85B7EB', fg: '#001e3d' },
+  { nombre: 'Reactivos',        bg: '#97C459', fg: '#0f2400' },
+  { nombre: 'EPP',              bg: '#AFA9EC', fg: '#1a0f3d' },
+  { nombre: 'Eléctrico / E&I',  bg: '#5DCAA5', fg: '#00261a' },
+  { nombre: 'Lubricantes',      bg: '#EF9F27', fg: '#2e1800' },
+  { nombre: 'Explosivos',       bg: '#F09595', fg: '#3d0000' },
+  { nombre: 'Construcción',     bg: '#888780', fg: '#0f0f0e' },
+  { nombre: 'Otros',            bg: '#B4B2A9', fg: '#1a1a18' },
+]
+
+const SAMPLE_PROVEEDORES = [
+  {
+    id: '1', razonSocial: 'VULCO PERU S.A.', ruc: '20100674000',
+    nombreComercial: 'Vulco', contactoNombre: 'Marco Salinas',
+    contactoEmail: 'ventas@vulco.com.pe', contactoTelefono: '01-234-5678',
+    categorias: ['Repuestos', 'Servicios'],
+    notas: 'Proveedor homologado para repuestos de desgaste y revestimientos.',
+    fechaAlta: '2024-01-15', activo: true,
+  },
+  {
+    id: '2', razonSocial: 'ELECTRO FERRO CENTRO S.A.C.', ruc: '20503141380',
+    nombreComercial: 'EFC', contactoNombre: 'Rosa Soto',
+    contactoEmail: 'rsoto@efc.com.pe', contactoTelefono: '01-456-7890',
+    categorias: ['Eléctrico / E&I', 'Repuestos'],
+    notas: 'Ferretería industrial y eléctricos. Lead time 3–5 días.',
+    fechaAlta: '2024-03-10', activo: true,
+  },
+  {
+    id: '3', razonSocial: 'MERCANTIL INTERAMERICANA S.A.C.', ruc: '20171545670',
+    nombreComercial: 'Mercantil', contactoNombre: 'Luis Quispe',
+    contactoEmail: 'lquispe@mercantil.pe', contactoTelefono: '01-567-8901',
+    categorias: ['Reactivos', 'Lubricantes'],
+    notas: 'Proveedor de reactivos para proceso de flotación.',
+    fechaAlta: '2024-05-20', activo: true,
+  },
+]
+
+const PROV_KEY = 'minprocure_proveedores'
+
+function inputStyle(err) {
+  return {
+    width: '100%', padding: '8px 12px', borderRadius: 8,
+    fontFamily: 'IBM Plex Mono', fontSize: 12,
+    background: C.bg, border: `1px solid ${err ? C.danger : C.border}`,
+    color: C.text, outline: 'none',
+  }
+}
+
+function FormField({ label, error, children }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <label style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, color: C.muted, letterSpacing: '0.05em' }}>{label}</label>
+      {children}
+      {error && <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, color: C.danger }}>{error}</span>}
+    </div>
+  )
+}
+
+function CatBadge({ nombre }) {
+  const cat = CATEGORIAS.find(c => c.nombre === nombre)
+  return (
+    <span style={{ padding: '2px 8px', borderRadius: 3, background: cat ? cat.bg : C.border, color: cat ? cat.fg : C.muted, fontSize: 11, fontFamily: 'IBM Plex Mono', fontWeight: 600, display: 'inline-block' }}>
+      {nombre}
+    </span>
+  )
+}
+
+const EMPTY_FORM = {
+  razonSocial: '', ruc: '', nombreComercial: '',
+  contactoNombre: '', contactoEmail: '', contactoTelefono: '',
+  categorias: [], notas: '',
+}
+
+function validateProvForm(form) {
+  const errs = {}
+  if (!form.razonSocial.trim()) errs.razonSocial = 'Obligatorio'
+  if (!form.ruc.trim()) errs.ruc = 'Obligatorio'
+  else if (!/^\d{11}$/.test(form.ruc.trim())) errs.ruc = 'Debe tener exactamente 11 dígitos numéricos'
+  if (!form.contactoEmail.trim()) errs.contactoEmail = 'Obligatorio'
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contactoEmail.trim())) errs.contactoEmail = 'Formato de email inválido'
+  if (form.categorias.length === 0) errs.categorias = 'Selecciona al menos una categoría'
+  return errs
+}
+
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'proveedores', label: 'Proveedores', icon: Users },
-  { id: 'ordenes', label: 'Órdenes de Compra', icon: ShoppingCart },
-  { id: 'acuerdos', label: 'Acuerdos Marco', icon: FileText },
-  { id: 'spend', label: 'Spend Analysis', icon: TrendingUp },
-  { id: 'inventario', label: 'Inventario MRO', icon: Package },
+  { id: 'dashboard',   label: 'Dashboard',        icon: LayoutDashboard },
+  { id: 'solped',      label: 'SOLPEDs',           icon: ClipboardList },
+  { id: 'proveedores', label: 'Proveedores',       icon: Users },
+  { id: 'ordenes',     label: 'Órdenes de Compra', icon: ShoppingCart },
+  { id: 'acuerdos',    label: 'Acuerdos Marco',    icon: FileText },
+  { id: 'spend',       label: 'Spend Analysis',    icon: TrendingUp },
+  { id: 'inventario',  label: 'Inventario MRO',    icon: Package },
 ]
 
 function Sidebar({ active, onNav }) {
@@ -400,117 +489,290 @@ function Dashboard() {
 
 // ─── PROVEEDORES ──────────────────────────────────────────────────────────────
 function Proveedores() {
-  const [search, setSearch] = useState('')
-  const [filtro, setFiltro] = useState('Todos')
-  const [sel, setSel] = useState(null)
-
-  const list = proveedores.filter(p => {
-    const ok = filtro === 'Todos' || p.estado === filtro
-    const s = p.nombre.toLowerCase().includes(search.toLowerCase()) || p.ruc.includes(search)
-    return ok && s
+  const [lista, setLista] = useState(() => {
+    try {
+      const raw = localStorage.getItem(PROV_KEY)
+      return raw ? JSON.parse(raw) : SAMPLE_PROVEEDORES
+    } catch { return SAMPLE_PROVEEDORES }
   })
-  const prov = sel ? proveedores.find(p => p.id === sel) : null
+  const [search, setSearch] = useState('')
+  const [filtroCats, setFiltroCats] = useState([])
+  const [filtroEstado, setFiltroEstado] = useState('todos')
+  const [modal, setModal] = useState(null)
+  const [form, setForm] = useState({ ...EMPTY_FORM })
+  const [errores, setErrores] = useState({})
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
+  const isFirstSave = useRef(true)
+
+  useEffect(() => {
+    if (isFirstSave.current) { isFirstSave.current = false; return }
+    localStorage.setItem(PROV_KEY, JSON.stringify(lista))
+  }, [lista])
+
+  const openNuevo = () => { setForm({ ...EMPTY_FORM }); setErrores({}); setModal('nuevo') }
+  const openEditar = p => {
+    setForm({
+      razonSocial: p.razonSocial, ruc: p.ruc, nombreComercial: p.nombreComercial,
+      contactoNombre: p.contactoNombre, contactoEmail: p.contactoEmail,
+      contactoTelefono: p.contactoTelefono, categorias: [...p.categorias], notas: p.notas,
+    })
+    setErrores({})
+    setModal(p.id)
+  }
+  const closeModal = () => { setModal(null); setErrores({}) }
+
+  const handleSave = () => {
+    const errs = validateProvForm(form)
+    if (Object.keys(errs).length > 0) { setErrores(errs); return }
+    if (modal === 'nuevo') {
+      setLista(prev => [{
+        ...form, id: crypto.randomUUID(),
+        fechaAlta: new Date().toISOString().slice(0, 10), activo: true,
+      }, ...prev])
+    } else {
+      setLista(prev => prev.map(p => p.id === modal ? { ...p, ...form } : p))
+    }
+    closeModal()
+  }
+
+  const toggleActivo = id => setLista(prev => prev.map(p => p.id === id ? { ...p, activo: !p.activo } : p))
+  const handleDelete = id => { setLista(prev => prev.filter(p => p.id !== id)); setConfirmDelete(null) }
+  const toggleCatFilter = cat => setFiltroCats(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])
+  const toggleFormCat = cat => {
+    setForm(prev => ({
+      ...prev,
+      categorias: prev.categorias.includes(cat) ? prev.categorias.filter(c => c !== cat) : [...prev.categorias, cat],
+    }))
+    if (errores.categorias) setErrores(e => ({ ...e, categorias: undefined }))
+  }
+  const setField = (key, val, errKey) => {
+    setForm(f => ({ ...f, [key]: val }))
+    if (errKey && errores[errKey]) setErrores(e => ({ ...e, [errKey]: undefined }))
+  }
+
+  const filtrada = lista.filter(p => {
+    const q = search.toLowerCase()
+    const matchSearch = !q || p.razonSocial.toLowerCase().includes(q) || p.ruc.includes(q) || p.nombreComercial.toLowerCase().includes(q)
+    const matchCats = filtroCats.length === 0 || filtroCats.some(c => p.categorias.includes(c))
+    const matchEstado = filtroEstado === 'todos' || (filtroEstado === 'activos' ? p.activo : !p.activo)
+    return matchSearch && matchCats && matchEstado
+  })
+
+  const isEdit = modal && modal !== 'nuevo'
+  const delProv = lista.find(p => p.id === confirmDelete)
 
   return (
-    <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 24, gap: 16 }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <div style={{ position: 'relative', maxWidth: 280 }}>
-          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="RUC, razón social..."
-            style={{ paddingLeft: 30, paddingRight: 12, paddingTop: 8, paddingBottom: 8, borderRadius: 8, fontFamily: 'IBM Plex Mono', fontSize: 12, background: C.card, border: `1px solid ${C.border}`, color: C.text, outline: 'none', width: 240 }} />
-        </div>
-        {['Todos', 'Homologado', 'Condicional', 'Pendiente'].map(f => (
-          <button key={f} onClick={() => setFiltro(f)}
-            style={{ padding: '7px 14px', borderRadius: 8, fontFamily: 'IBM Plex Mono', fontSize: 12, background: filtro === f ? `${C.primary}20` : C.card, color: filtro === f ? C.primary : C.muted, border: `1px solid ${filtro === f ? C.primary : C.border}`, cursor: 'pointer' }}>
-            {f}
+    <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg }}>
+      {/* ── Toolbar ── */}
+      <div style={{ padding: '14px 24px', borderBottom: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Razón social, RUC o nombre comercial..."
+              style={{ paddingLeft: 30, paddingRight: 12, paddingTop: 8, paddingBottom: 8, borderRadius: 8, fontFamily: 'IBM Plex Mono', fontSize: 12, background: C.card, border: `1px solid ${C.border}`, color: C.text, outline: 'none', width: 310 }} />
+          </div>
+          {[['todos', 'Todos'], ['activos', 'Activos'], ['inactivos', 'Inactivos']].map(([val, lbl]) => (
+            <button key={val} onClick={() => setFiltroEstado(val)}
+              style={{ padding: '7px 14px', borderRadius: 8, fontFamily: 'IBM Plex Mono', fontSize: 12, background: filtroEstado === val ? `${C.primary}20` : C.card, color: filtroEstado === val ? C.primary : C.muted, border: `1px solid ${filtroEstado === val ? C.primary : C.border}`, cursor: 'pointer' }}>
+              {lbl}
+            </button>
+          ))}
+          <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, color: C.muted }}>
+            {filtrada.length} resultado{filtrada.length !== 1 ? 's' : ''}
+          </span>
+          <button onClick={openNuevo}
+            style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 18px', borderRadius: 8, fontFamily: 'IBM Plex Mono', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer' }}>
+            <Plus size={13} /> Nuevo Proveedor
           </button>
-        ))}
-        <button style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 8, fontFamily: 'IBM Plex Mono', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer' }}>
-          <Plus size={13} /> Registrar Proveedor
-        </button>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, color: C.muted, marginRight: 4 }}>Categoría:</span>
+          {CATEGORIAS.map(cat => {
+            const active = filtroCats.includes(cat.nombre)
+            return (
+              <button key={cat.nombre} onClick={() => toggleCatFilter(cat.nombre)}
+                style={{ padding: '3px 10px', borderRadius: 4, fontFamily: 'IBM Plex Mono', fontSize: 11, fontWeight: active ? 600 : 400, background: active ? cat.bg : `${cat.bg}22`, color: active ? cat.fg : cat.bg, border: `1px solid ${active ? cat.bg : cat.bg + '60'}`, cursor: 'pointer' }}>
+                {cat.nombre}
+              </button>
+            )
+          })}
+          {filtroCats.length > 0 && (
+            <button onClick={() => setFiltroCats([])}
+              style={{ padding: '3px 10px', borderRadius: 4, fontFamily: 'IBM Plex Mono', fontSize: 11, background: 'transparent', color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
+              × Limpiar
+            </button>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 16, flex: 1, overflow: 'hidden' }}>
-        <Card className="p-4" style={{ flex: 1, overflowY: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'IBM Plex Mono', fontSize: 12 }}>
+      {/* ── Table ── */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px' }}>
+        {filtrada.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60%', gap: 12 }}>
+            <div style={{ width: 52, height: 52, borderRadius: 12, background: C.card, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Users size={22} style={{ color: C.muted }} />
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 14, color: C.text, marginBottom: 4 }}>
+                {lista.length === 0 ? 'No hay proveedores registrados' : 'Sin resultados'}
+              </div>
+              <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 12, color: C.muted }}>
+                {lista.length === 0 ? 'Haz clic en "Nuevo Proveedor" para comenzar.' : 'Ajusta los filtros o el texto de búsqueda.'}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'IBM Plex Mono', fontSize: 12, marginTop: 16 }}>
             <thead>
               <tr style={{ color: C.muted, borderBottom: `1px solid ${C.border}` }}>
-                {['Razón Social', 'RUC', 'Categorías', 'Score', 'Estado', 'OTIF', ''].map(h => (
-                  <th key={h} style={{ padding: '0 12px 8px 0', textAlign: 'left', fontWeight: 500 }}>{h}</th>
+                {['Razón Social', 'RUC', 'Categorías', 'Contacto Email', 'Estado', 'Acciones'].map(h => (
+                  <th key={h} style={{ padding: '0 12px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, letterSpacing: '0.05em' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {list.map((p) => (
-                <tr key={p.id} onClick={() => setSel(sel === p.id ? null : p.id)}
-                  style={{ cursor: 'pointer', borderBottom: `1px solid ${C.border}40`, background: sel === p.id ? `${C.primary}08` : 'transparent', color: C.text }}>
-                  <td style={{ padding: '11px 12px 11px 0', fontWeight: 600 }}>{p.nombre}</td>
-                  <td style={{ padding: '11px 12px 11px 0', color: C.muted }}>{p.ruc}</td>
-                  <td style={{ padding: '11px 12px 11px 0' }}>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {p.cats.slice(0, 2).map(c => (
-                        <span key={c} style={{ padding: '2px 6px', borderRadius: 3, background: C.border, color: C.muted, fontSize: 11 }}>{c}</span>
-                      ))}
-                    </div>
-                  </td>
-                  <td style={{ padding: '11px 16px 11px 0', width: 120 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ color: p.score >= 80 ? C.primary : p.score >= 60 ? C.gold : C.danger, fontWeight: 600 }}>{p.score}</span>
-                      <div style={{ flex: 1 }}><ScoreBar value={p.score} size="sm" /></div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '11px 12px 11px 0' }}><Badge>{p.estado}</Badge></td>
-                  <td style={{ padding: '11px 12px 11px 0', color: p.otif >= 90 ? C.primary : p.otif >= 80 ? C.gold : p.otif > 0 ? C.danger : C.muted }}>
-                    {p.otif > 0 ? `${p.otif}%` : '—'}
-                  </td>
-                  <td style={{ padding: '11px 0 11px 0' }}>
-                    <button style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.primary, fontFamily: 'IBM Plex Mono', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer' }}>
-                      <Eye size={12} /> Ver
-                    </button>
-                  </td>
-                </tr>
+              {filtrada.map(p => (
+                <Fragment key={p.id}>
+                  <tr style={{ borderBottom: expandedId === p.id ? 'none' : `1px solid ${C.border}40`, background: expandedId === p.id ? C.card : 'transparent', color: C.text }}>
+                    <td style={{ padding: '12px 12px 12px 0' }}>
+                      <button onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
+                        <div style={{ fontWeight: 700, color: expandedId === p.id ? C.primary : C.text, fontFamily: 'IBM Plex Mono', fontSize: 12 }}>{p.razonSocial}</div>
+                        {p.nombreComercial && <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{p.nombreComercial}</div>}
+                      </button>
+                    </td>
+                    <td style={{ padding: '12px 12px 12px 0', color: C.muted }}>{p.ruc}</td>
+                    <td style={{ padding: '12px 12px 12px 0' }}>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {p.categorias.map(c => <CatBadge key={c} nombre={c} />)}
+                      </div>
+                    </td>
+                    <td style={{ padding: '12px 12px 12px 0', color: C.muted }}>{p.contactoEmail}</td>
+                    <td style={{ padding: '12px 12px 12px 0' }}>
+                      <span style={{ padding: '3px 10px', borderRadius: 4, fontFamily: 'IBM Plex Mono', fontSize: 11, fontWeight: 600, background: p.activo ? `${C.primary}20` : `${C.danger}15`, color: p.activo ? C.primary : C.danger, border: `1px solid ${p.activo ? C.primary + '40' : C.danger + '40'}` }}>
+                        {p.activo ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px 0 12px 0' }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => openEditar(p)} style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: C.muted, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Editar</button>
+                        <button onClick={() => toggleActivo(p.id)} style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: p.activo ? C.warn : C.primary, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>{p.activo ? 'Desactivar' : 'Activar'}</button>
+                        <button onClick={() => setConfirmDelete(p.id)} style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, background: 'none', border: `1px solid ${C.danger}40`, color: C.danger, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Eliminar</button>
+                      </div>
+                    </td>
+                  </tr>
+                  {expandedId === p.id && (
+                    <tr style={{ background: C.card, borderBottom: `1px solid ${C.border}40` }}>
+                      <td colSpan={6} style={{ padding: '10px 0 16px 0' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, fontFamily: 'IBM Plex Mono', fontSize: 12 }}>
+                          <div>
+                            <div style={{ color: C.muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Contacto</div>
+                            <div style={{ color: C.text }}>{p.contactoNombre || '—'}</div>
+                            <div style={{ color: C.muted, marginTop: 2 }}>{p.contactoTelefono || '—'}</div>
+                          </div>
+                          <div>
+                            <div style={{ color: C.muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Email</div>
+                            <div style={{ color: C.text }}>{p.contactoEmail}</div>
+                          </div>
+                          <div>
+                            <div style={{ color: C.muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Fecha de Alta</div>
+                            <div style={{ color: C.text }}>{p.fechaAlta}</div>
+                          </div>
+                          <div>
+                            <div style={{ color: C.muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Notas</div>
+                            <div style={{ color: C.muted }}>{p.notas || '—'}</div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
-        </Card>
-
-        {prov && (
-          <Card className="p-4" style={{ width: 280, flexShrink: 0, overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-              <div>
-                <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 13, color: C.text }}>{prov.nombre}</div>
-                <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, color: C.muted, marginTop: 2 }}>RUC {prov.ruc}</div>
-              </div>
-              <button onClick={() => setSel(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} style={{ color: C.muted }} /></button>
-            </div>
-            <Badge>{prov.estado}</Badge>
-            <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '16px 0 10px' }}>Score por Dimensión</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-              <GaugeMini label="Financiero" value={provScores[prov.id]?.fin ?? 75} />
-              <GaugeMini label="Técnico" value={provScores[prov.id]?.tec ?? 80} />
-              <GaugeMini label="Legal" value={provScores[prov.id]?.leg ?? 78} />
-              <GaugeMini label="Ambiental" value={provScores[prov.id]?.amb ?? 76} />
-            </div>
-            <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>Historial</div>
-            {evalHistory.map((e, i) => (
-              <div key={i} style={{ padding: 10, borderRadius: 8, background: C.bg, marginBottom: 6 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 12, fontWeight: 600, color: C.text }}>{e.fecha}</span>
-                  <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, color: C.primary }}>
-                    {Math.round((e.financiero + e.tecnico + e.legal + e.ambiental) / 4)}
-                  </span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, fontFamily: 'IBM Plex Mono', fontSize: 11, color: C.muted }}>
-                  <span>Fin: <b style={{ color: C.text }}>{e.financiero}</b></span>
-                  <span>Téc: <b style={{ color: C.text }}>{e.tecnico}</b></span>
-                  <span>Leg: <b style={{ color: C.text }}>{e.legal}</b></span>
-                  <span>Amb: <b style={{ color: C.text }}>{e.ambiental}</b></span>
-                </div>
-              </div>
-            ))}
-          </Card>
         )}
       </div>
+
+      {/* ── Create / Edit Modal ── */}
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(13,27,42,0.90)' }}>
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, width: 560, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 16, color: C.text }}>{isEdit ? 'Editar Proveedor' : 'Nuevo Proveedor'}</div>
+              <button onClick={closeModal} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} style={{ color: C.muted }} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <FormField label="Razón Social *" error={errores.razonSocial}>
+                <input value={form.razonSocial} onChange={e => setField('razonSocial', e.target.value, 'razonSocial')}
+                  placeholder="Nombre legal completo" style={inputStyle(errores.razonSocial)} />
+              </FormField>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <FormField label="RUC *" error={errores.ruc}>
+                  <input value={form.ruc} onChange={e => setField('ruc', e.target.value, 'ruc')}
+                    placeholder="11 dígitos" maxLength={11} style={inputStyle(errores.ruc)} />
+                </FormField>
+                <FormField label="Nombre Comercial">
+                  <input value={form.nombreComercial} onChange={e => setField('nombreComercial', e.target.value)}
+                    placeholder="Nombre abreviado" style={inputStyle()} />
+                </FormField>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <FormField label="Nombre de Contacto">
+                  <input value={form.contactoNombre} onChange={e => setField('contactoNombre', e.target.value)}
+                    placeholder="Nombre y apellido" style={inputStyle()} />
+                </FormField>
+                <FormField label="Teléfono">
+                  <input value={form.contactoTelefono} onChange={e => setField('contactoTelefono', e.target.value)}
+                    placeholder="01-234-5678" style={inputStyle()} />
+                </FormField>
+              </div>
+              <FormField label="Email de Contacto *" error={errores.contactoEmail}>
+                <input value={form.contactoEmail} onChange={e => setField('contactoEmail', e.target.value, 'contactoEmail')}
+                  placeholder="correo@empresa.com" style={inputStyle(errores.contactoEmail)} />
+              </FormField>
+              <FormField label="Categorías * — selecciona una o más" error={errores.categorias}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '10px 12px', borderRadius: 8, border: `1px solid ${errores.categorias ? C.danger : C.border}`, background: C.bg }}>
+                  {CATEGORIAS.map(cat => {
+                    const sel = form.categorias.includes(cat.nombre)
+                    return (
+                      <button key={cat.nombre} type="button" onClick={() => toggleFormCat(cat.nombre)}
+                        style={{ padding: '5px 12px', borderRadius: 6, fontFamily: 'IBM Plex Mono', fontSize: 12, fontWeight: sel ? 600 : 400, background: sel ? cat.bg : `${cat.bg}20`, color: sel ? cat.fg : cat.bg, border: `2px solid ${sel ? cat.bg : cat.bg + '55'}`, cursor: 'pointer' }}>
+                        {cat.nombre}
+                      </button>
+                    )
+                  })}
+                </div>
+              </FormField>
+              <FormField label="Notas">
+                <textarea value={form.notas} onChange={e => setField('notas', e.target.value)}
+                  placeholder="Condiciones especiales, lead time, observaciones..." rows={3}
+                  style={{ ...inputStyle(), resize: 'vertical', minHeight: 72 }} />
+              </FormField>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24, paddingTop: 20, borderTop: `1px solid ${C.border}` }}>
+              <button onClick={closeModal} style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'IBM Plex Mono', fontSize: 12, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={handleSave} style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'IBM Plex Mono', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer' }}>{isEdit ? 'Guardar Cambios' : 'Crear Proveedor'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation ── */}
+      {confirmDelete && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(13,27,42,0.92)' }}>
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 28, width: 400 }}>
+            <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 8 }}>Eliminar Proveedor</div>
+            <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 12, color: C.muted, marginBottom: 20 }}>
+              ¿Estás seguro de eliminar a <b style={{ color: C.text }}>{delProv?.razonSocial}</b>? Esta acción no se puede deshacer.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button onClick={() => setConfirmDelete(null)} style={{ padding: '8px 18px', borderRadius: 8, fontFamily: 'IBM Plex Mono', fontSize: 12, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={() => handleDelete(confirmDelete)} style={{ padding: '8px 18px', borderRadius: 8, fontFamily: 'IBM Plex Mono', fontSize: 12, fontWeight: 600, background: C.danger, color: '#fff', border: 'none', cursor: 'pointer' }}>Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -903,8 +1165,9 @@ function Inventario() {
 
 // ─── APP ─────────────────────────────────────────────────────────────────────
 const VIEWS = {
-  dashboard: { comp: Dashboard, title: 'Dashboard Ejecutivo' },
-  proveedores: { comp: Proveedores, title: 'Proveedores y Homologación' },
+  dashboard:   { comp: Dashboard,  title: 'Dashboard Ejecutivo' },
+  solped:      { comp: Solped,     title: 'Procesamiento SOLPED' },
+  proveedores: { comp: Proveedores, title: 'Maestro de Proveedores' },
   ordenes: { comp: Ordenes, title: 'Órdenes de Compra' },
   acuerdos: { comp: Acuerdos, title: 'Acuerdos Marco y Contratos' },
   spend: { comp: Spend, title: 'Spend Analysis' },

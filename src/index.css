@@ -4,3 +4,4 @@ body { background: #0D1B2A; overflow: hidden; -webkit-font-smoothing: antialiase
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: #0D1B2A; }
 ::-webkit-scrollbar-thumb { background: #243447; border-radius: 4px; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
