@@ -75,7 +75,7 @@ const INIT = () => ({
 })
 
 // ─── FORM COMPONENTS ──────────────────────────────────────────────────────────
-function Inp({ label, value, onChange, type = 'text', placeholder, span = 1 }) {
+function Inp({ label, value, onChange, type = 'text', placeholder, span = 1, disabled = false }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 5, gridColumn: `span ${span}` }}>
       <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</span>
@@ -84,7 +84,8 @@ function Inp({ label, value, onChange, type = 'text', placeholder, span = 1 }) {
         value={value ?? ''}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, background: `${C.bg}cc`, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', outline: 'none', width: '100%', boxSizing: 'border-box' }}
+        disabled={disabled}
+        style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: disabled ? C.muted : C.text, background: disabled ? `${C.border}55` : `${C.bg}cc`, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', outline: 'none', width: '100%', boxSizing: 'border-box', cursor: disabled ? 'not-allowed' : 'text' }}
       />
     </label>
   )
@@ -107,6 +108,9 @@ function Sec({ title, cols, children }) {
 // ─── FORM SCREEN ──────────────────────────────────────────────────────────────
 function FormOC({ data, setData, onPreview, isMobile }) {
   const cols = isMobile ? 2 : 4
+  // Fecha de emisión arranca bloqueada (solo lectura) con la fecha de hoy.
+  // El botón "Editar" la habilita para corrección manual puntual.
+  const [editFecha, setEditFecha] = useState(false)
   const set = (k, v) => setData(d => ({ ...d, [k]: v }))
   const nest = (f, k, v) => setData(d => ({ ...d, [f]: { ...d[f], [k]: v } }))
   const setItem = (id, k, v) => setData(d => ({ ...d, items: d.items.map(it => it.id === id ? { ...it, [k]: v } : it) }))
@@ -129,9 +133,42 @@ function FormOC({ data, setData, onPreview, isMobile }) {
     <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '16px 14px' : '20px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
       {/* CABECERA */}
+      {/*
+        ───────────────────────────────────────────────────────────────────────
+        CÓDIGO DE CLIENTE EN EL N° DE OC
+        ───────────────────────────────────────────────────────────────────────
+        Los dos primeros dígitos del N° de Orden de Compra identifican al cliente
+        al que pertenece la orden. Convención provisional:
+            45 -> Cliente 1
+            46 -> Cliente 2
+            47 -> Cliente 3
+            ...
+        Así, con solo mirar el prefijo, se sabe a qué cliente corresponde la OC.
+
+        PENDIENTE (decisión del socio): el factor que determina el código de cada
+        cliente todavía no está definido (¿correlativo?, ¿RUC?, ¿unidad minera?,
+        ¿asignación manual?). Cuando se decida, aquí debe vivir el mapeo
+        cliente -> prefijo y la generación automática del numeroOC. Por ahora el
+        número se ingresa/edita manualmente.
+        ───────────────────────────────────────────────────────────────────────
+      */}
       <Sec title="Cabecera" cols={cols}>
         <Inp label="N° Orden de Compra" value={data.numeroOC} onChange={v => set('numeroOC', v)} span={isMobile ? 1 : 2} />
-        <Inp label="Fecha de emisión" value={data.fechaEmision} onChange={v => set('fechaEmision', v)} type="date" span={isMobile ? 1 : 2} />
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, gridColumn: `span ${isMobile ? 1 : 2}` }}>
+          <div style={{ flex: 1 }}>
+            <Inp label="Fecha de emisión" value={data.fechaEmision} onChange={v => set('fechaEmision', v)} type="date" disabled={!editFecha} />
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditFecha(e => !e)}
+            title={editFecha ? 'Bloquear fecha' : 'Editar fecha de emisión'}
+            style={{ height: 33, padding: '0 14px', borderRadius: 6, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11, whiteSpace: 'nowrap',
+              background: editFecha ? C.primary : 'none',
+              border: `1px solid ${editFecha ? C.primary : C.border}`,
+              color: editFecha ? C.bg : C.muted }}>
+            {editFecha ? 'Listo' : 'Editar'}
+          </button>
+        </div>
       </Sec>
 
       {/* EMISOR */}
