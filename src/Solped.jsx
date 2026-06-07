@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown } from 'lucide-react'
+import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, X, ArrowRight } from 'lucide-react'
 
 const C = {
   bg: '#F5F6F7', card: '#FFFFFF', shell: '#354A5E',
@@ -97,50 +97,200 @@ export function clasificarItem(item, categorias = CATEGORIAS_SOLPED) {
   return 'Otros'
 }
 
-// ── Excel parser ──────────────────────────────────────────────────────────────
-function parseSolpedSheet(workbook) {
-  const sheetName = workbook.SheetNames[0]
-  if (!sheetName) throw new Error('El archivo no contiene hojas de cálculo.')
-  const sheet = workbook.Sheets[sheetName]
-  const rows  = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+// ── Ingesta determinista: mapeo de columnas heterogéneas (sin IA) ─────────────
+// Cada cliente manda su Excel con cabeceras/orden distintos. Mapeamos sus columnas
+// a nuestros campos canónicos con: (1) diccionario de sinónimos + distancia de
+// edición, y (2) plantillas guardadas por cliente. Todo local y explicable.
 
-  if (rows.length < 2) throw new Error('El archivo no tiene filas de datos (mínimo encabezado + 1 fila).')
+// Campos canónicos del sistema. obligatorio ⇒ sin él no se puede importar.
+const CAMPOS = [
+  { campo: 'textoBreve',      label: 'Descripción del material', obligatorio: true  },
+  { campo: 'grupoArticulos',  label: 'Grupo / familia',          obligatorio: false },
+  { campo: 'codigoMaterial',  label: 'Código de material',       obligatorio: false },
+  { campo: 'cantidad',        label: 'Cantidad',                 obligatorio: false },
+  { campo: 'unidad',          label: 'Unidad de medida',         obligatorio: false },
+  { campo: 'valorTotal',      label: 'Valor total',              obligatorio: false },
+  { campo: 'moneda',          label: 'Moneda',                   obligatorio: false },
+  { campo: 'solped',          label: 'N° SOLPED / OC',           obligatorio: false },
+  { campo: 'posicion',        label: 'Posición / ítem',          obligatorio: false },
+  { campo: 'solicitante',     label: 'Solicitante',              obligatorio: false },
+  { campo: 'areaNecesidad',   label: 'Área / centro',            obligatorio: false },
+  { campo: 'fechaLiberacion', label: 'Fecha',                    obligatorio: false },
+]
 
-  const parsed = rows.slice(1)
-    .filter(row => {
-      const solped = (row[0] ?? '').toString().trim()
-      return solped !== '' && !isNaN(Number(solped))
-    })
-    .map(row => {
-      const item = {
-        id:              crypto.randomUUID(),
-        solped:          (row[0]  ?? '').toString().trim(),
-        posicion:        (row[1]  ?? '').toString().trim(),
-        codigoMaterial:  (row[2]  ?? '').toString().trim(),
-        textoBreve:      (row[3]  ?? '').toString().trim(),
-        especificacion:  (row[5]  ?? '').toString().trim(),
-        cantidad:        Number(row[6])  || 0,
-        unidad:          (row[7]  ?? '').toString().trim(),
-        tipoPos:         (row[8]  ?? '').toString().trim(),
-        solicitante:     (row[9]  ?? '').toString().trim(),
-        valorTotal:      Number(row[10]) || 0,
-        moneda:          ((row[11] ?? 'USD').toString().trim()) || 'USD',
-        fechaLiberacion: (row[12] ?? '').toString().trim(),
-        diasDesde:       Number(row[13]) || 0,
-        grupoPlanif:     (row[16] ?? '').toString().trim(),
-        areaNecesidad:   (row[18] ?? '').toString().trim(),
-        grupoArticulos:  (row[21] ?? '').toString().trim(),
-        grupoCompras:    (row[22] ?? '').toString().trim(),
-        categoriaManual: false,
-      }
-      item.categoria = clasificarItem(item)
-      return item
-    })
-
-  if (parsed.length === 0)
-    throw new Error('No se encontraron filas válidas. Verifica que el archivo sea una exportación SOLPED de SAP.')
-  return parsed
+// Sinónimos de cabecera por campo (ya normalizados: minúsculas, sin tildes).
+const ALIAS = {
+  textoBreve:      ['descripcion', 'descripcion del material', 'texto breve', 'detalle', 'denominacion', 'material', 'glosa', 'item descripcion', 'description', 'material description', 'desc'],
+  grupoArticulos:  ['grupo articulos', 'grupo de articulos', 'familia', 'grupo', 'rubro', 'clase', 'commodity group', 'commodity', 'material group', 'grupo material', 'linea'],
+  codigoMaterial:  ['codigo', 'codigo material', 'cod material', 'cod sap', 'codigo sap', 'sku', 'nro parte', 'numero de parte', 'part number', 'material code', 'codigo de material'],
+  cantidad:        ['cantidad', 'cant', 'qty', 'quantity', 'volumen', 'cantidad solicitada'],
+  unidad:          ['unidad', 'um', 'u m', 'uom', 'unidad de medida', 'medida', 'unit'],
+  valorTotal:      ['valor total', 'valor', 'importe', 'monto', 'net value', 'precio total', 'valor neto', 'importe total', 'total'],
+  moneda:          ['moneda', 'divisa', 'currency', 'mon'],
+  solped:          ['solped', 'n solped', 'numero solped', 'orden de compra', 'oc', 'orden', 'pedido', 'purchase order', 'po', 'requisition'],
+  posicion:        ['posicion', 'pos', 'item', 'linea', 'line', 'line item', 'renglon'],
+  solicitante:     ['solicitante', 'requested by', 'solicitado por', 'usuario', 'requester', 'pedido por'],
+  areaNecesidad:   ['area', 'area necesidad', 'area de necesidad', 'centro', 'planta', 'ubicacion', 'destino', 'cost center', 'centro de costo'],
+  fechaLiberacion: ['fecha', 'fecha liberacion', 'fecha de liberacion', 'need date', 'fecha requerida', 'fecha necesidad', 'fecha entrega'],
 }
+
+const UMBRAL = 0.78
+const HOY_DEMO = new Date(2025, 5, 7) // fecha de referencia del demo
+
+const norm = s => (s ?? '').toString().toLowerCase()
+  .normalize('NFD').replace(/\p{Diacritic}/gu, '')   // quita tildes
+  .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+
+// Distancia de Levenshtein normalizada (1 = idénticas). 100% determinista.
+function similitud(a, b) {
+  if (!a || !b) return 0
+  if (a === b) return 1
+  const m = a.length, n = b.length
+  const prev = Array.from({ length: n + 1 }, (_, j) => j)
+  for (let i = 1; i <= m; i++) {
+    let diag = prev[0]; prev[0] = i
+    for (let j = 1; j <= n; j++) {
+      const tmp = prev[j]
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1))
+      diag = tmp
+    }
+  }
+  return 1 - prev[n] / Math.max(m, n)
+}
+
+// Qué tan bien una cabecera coincide con los alias de un campo (0..1).
+function scoreCampo(headerNorm, campo) {
+  if (!headerNorm) return 0
+  let best = 0
+  for (const a of ALIAS[campo] || []) {
+    if (headerNorm === a) return 1
+    if (headerNorm.includes(a) || a.includes(headerNorm)) best = Math.max(best, 0.9)
+    best = Math.max(best, similitud(headerNorm, a))
+  }
+  return best
+}
+
+// La cabecera real puede no ser la fila 0 (logos/títulos). Elegimos, entre las
+// primeras 15 filas, la que más columnas reconoce contra el diccionario.
+function detectarCabecera(rows) {
+  let mejor = { idx: 0, hits: -1 }
+  const lim = Math.min(15, rows.length)
+  for (let i = 0; i < lim; i++) {
+    const celdas = (rows[i] || []).map(norm).filter(Boolean)
+    if (celdas.length < 2) continue
+    const hits = celdas.filter(c => CAMPOS.some(({ campo }) => scoreCampo(c, campo) >= UMBRAL)).length
+    if (hits > mejor.hits) mejor = { idx: i, hits }
+  }
+  return mejor.idx
+}
+
+// Auto-asigna cada campo a la mejor columna por encima del umbral (sin repetir
+// columna; los conflictos se resuelven por mayor score).
+function autoMapear(headerRow) {
+  const headers = headerRow.map(norm)
+  const cands = []
+  CAMPOS.forEach(({ campo }) => headers.forEach((h, idx) => {
+    const score = scoreCampo(h, campo)
+    if (score >= UMBRAL) cands.push({ campo, idx, score })
+  }))
+  cands.sort((a, b) => b.score - a.score)
+  const mapping = {}, usados = new Set()
+  for (const { campo, idx } of cands) {
+    if (mapping[campo] !== undefined || usados.has(idx)) continue
+    mapping[campo] = idx; usados.add(idx)
+  }
+  return mapping
+}
+
+// ── Normalización de valores ──────────────────────────────────────────────────
+const UM_ALIAS = { UND: 'UN', UNIDAD: 'UN', UNID: 'UN', EA: 'UN', PZA: 'UN', PZ: 'UN', PCS: 'UN', PC: 'UN', KILOS: 'KG', KILO: 'KG', KGS: 'KG', LT: 'L', LTS: 'L', LITRO: 'L', LITROS: 'L', GLN: 'GL', MTS: 'M', METRO: 'M', METROS: 'M', ROL: 'TRO' }
+const normUnidad = v => { const u = (v ?? '').toString().trim().toUpperCase(); return UM_ALIAS[u] || u }
+const normMoneda = v => { const m = (v ?? '').toString().trim().toUpperCase(); if (['USD', 'US$', '$', 'DOLARES', 'DOLAR', 'DÓLARES'].includes(m)) return 'USD'; if (['PEN', 'S/', 'SOLES', 'SOL', 'S/.'].includes(m)) return 'PEN'; return m || 'USD' }
+
+// Números con formato PE/ES ("1.234,56") o US ("1,234.56").
+function parseNum(v) {
+  if (typeof v === 'number') return v
+  let s = (v ?? '').toString().trim().replace(/[^\d.,-]/g, '')
+  if (!s) return 0
+  const c = s.includes(','), d = s.includes('.')
+  if (c && d) s = s.lastIndexOf(',') > s.lastIndexOf('.') ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '')
+  else if (c) s = /,\d{1,2}$/.test(s) ? s.replace(',', '.') : s.replace(/,/g, '')
+  return Number(s) || 0
+}
+
+function diasDesdeFecha(str) {
+  const m = (str ?? '').toString().trim().match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/)
+  if (!m) return 0
+  const y = m[3].length === 2 ? '20' + m[3] : m[3]
+  const dt = new Date(Number(y), Number(m[2]) - 1, Number(m[1]))
+  if (isNaN(dt)) return 0
+  const diff = Math.round((HOY_DEMO - dt) / 86400000)
+  return diff > 0 ? diff : 0
+}
+
+// Construye los items finales: aplica el mapeo, normaliza y clasifica.
+function construirItems(rows, headerIdx, mapping) {
+  const get = (row, campo) => mapping[campo] !== undefined ? row[mapping[campo]] : ''
+  const items = []
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i] || []
+    const desc = (get(row, 'textoBreve') ?? '').toString().trim()
+    if (!desc) continue // fila sin descripción ⇒ vacía/separadora, se ignora
+    const item = {
+      id:              crypto.randomUUID(),
+      solped:          (get(row, 'solped') ?? '').toString().trim() || `—`,
+      posicion:        (get(row, 'posicion') ?? '').toString().trim() || String(items.length + 1),
+      codigoMaterial:  (get(row, 'codigoMaterial') ?? '').toString().trim(),
+      textoBreve:      desc,
+      especificacion:  '',
+      cantidad:        parseNum(get(row, 'cantidad')),
+      unidad:          normUnidad(get(row, 'unidad')),
+      tipoPos:         '',
+      solicitante:     (get(row, 'solicitante') ?? '').toString().trim(),
+      valorTotal:      parseNum(get(row, 'valorTotal')),
+      moneda:          normMoneda(get(row, 'moneda')),
+      fechaLiberacion: (get(row, 'fechaLiberacion') ?? '').toString().trim(),
+      diasDesde:       diasDesdeFecha(get(row, 'fechaLiberacion')),
+      grupoPlanif:     '',
+      areaNecesidad:   (get(row, 'areaNecesidad') ?? '').toString().trim(),
+      grupoArticulos:  (get(row, 'grupoArticulos') ?? '').toString().trim(),
+      categoriaManual: false,
+    }
+    item.categoria = clasificarItem(item)
+    items.push(item)
+  }
+  return items
+}
+
+// «Huella» del formato = cabeceras normalizadas y ordenadas. Reconoce al cliente.
+const huellaCabecera = headerRow => headerRow.map(norm).filter(Boolean).sort().join('|')
+
+const MAP_KEY = 'minprocure_solped_plantillas'
+const cargarPlantillas = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY)) || [] } catch { return [] } }
+const guardarPlantilla = p => {
+  const all = cargarPlantillas().filter(x => x.huella !== p.huella)
+  try { localStorage.setItem(MAP_KEY, JSON.stringify([p, ...all].slice(0, 50))) } catch { /* almacenamiento no disponible */ }
+}
+
+// ── Excels de ejemplo «desordenados» (distintos clientes) para probar el mapeo ──
+const DEMO_CLIENTE_A = [
+  ['ORDEN DE COMPRA — CÍA. MINERA CERRO VERDE', '', '', '', '', '', '', '', '', ''],
+  ['Generado el 02/06/2025 · Unidad Cerro Verde', '', '', '', '', '', '', '', '', ''],
+  ['Item', 'Cód. SAP', 'Descripción del Material', 'Cant.', 'U.M.', 'Familia', 'Precio Total', 'Mon.', 'Solicitante', 'Centro'],
+  ['10', 'M-2341', 'RODAMIENTO SKF 23040 CC/W33 C3', '4', 'UND', '29001', '4,800.00', 'USD', 'JLOPEZ', 'Planta Concentradora'],
+  ['20', 'X-0001', 'ANFO PESADO 94/6 PARA VOLADURA SUBTERRANEA', '120', 'TM', '11001', '98,400.00', 'USD', 'PGUERRERO', 'Mina'],
+  ['30', 'S-0234', 'CASCO MINERO 3M H700 BLANCO TIPO I', '50', 'UND', '34005', '1,750.00', 'USD', 'HSALAS', 'Seguridad'],
+  ['40', 'Q-0045', 'XANTATO ISOPROPILICO AEROPHINE 3418A', '2000', 'KG', '16020', '9,800.00', 'USD', 'PCASAS', 'Procesamiento'],
+  ['50', 'L-0012', 'GRASA MOLYKOTE BR2 PLUS 180KG', '5', 'BLD', '17001', '2,250.00', 'USD', 'JLOPEZ', 'Planta'],
+]
+const DEMO_CLIENTE_B = [
+  ['Line', 'Part Number', 'Qty', 'UOM', 'Material Description', 'Commodity Group', 'Net Value', 'Currency', 'Requested By', 'Need Date'],
+  ['1', 'E-0099', '2', 'EA', 'VARIADOR DE FRECUENCIA ABB ACS880 55KW', '26010', '18600', 'USD', 'FSORIA', '10/03/2025'],
+  ['2', 'R-0055', '6', 'KIT', 'KIT SELLO MECANICO BOMBA WARMAN 6/4 AH', '15020', '12150', 'PEN', 'JLOPEZ', '25/04/2025'],
+  ['3', 'C-0078', '30', 'ROL', 'TUBERIA HDPE DN200 PN10 x 6m', '28003', '6750', 'USD', 'MQUISPE', '18/04/2025'],
+  ['4', '', '1', 'GL', 'SERV MANTTO PREVENTIVO BOMBA WARMAN 6/4', '', '12500', 'USD', 'RMENDOZA', '15/03/2025'],
+  ['5', 'E-0204', '12', 'UN', 'CABLE NYY 3x16mm2 0.6/1KV', '26002', '3480', 'USD', 'FSORIA', '12/04/2025'],
+]
 
 // ── Sample data ───────────────────────────────────────────────────────────────
 const RAW_SAMPLES = [
@@ -239,8 +389,84 @@ function SummaryCard({ nombre, count, valorUSD, active, onClick }) {
   )
 }
 
+// ── Modal de confirmación de mapeo ────────────────────────────────────────────
+function MapeoModal({ data, isMobile, onConfirm, onCancel }) {
+  const { rows, headerIdx, headerRow, fileName } = data
+  const [mapping, setMapping] = useState(data.mapping)
+  const [cliente, setCliente] = useState('')
+  const ejemplo = rows[headerIdx + 1] || []
+  const nCols  = headerRow.length
+  const nDatos = rows.length - headerIdx - 1
+
+  const setCampo = (campo, val) => setMapping(m => ({ ...m, [campo]: val === '' ? undefined : Number(val) }))
+  const colTexto = idx => {
+    const h = (headerRow[idx] ?? '').toString().trim() || `(col ${idx + 1})`
+    const s = (ejemplo[idx] ?? '').toString().trim()
+    return s ? `${h} — ej: ${s.length > 22 ? s.slice(0, 22) + '…' : s}` : h
+  }
+  const falta = CAMPOS.some(c => c.obligatorio && mapping[c.campo] === undefined)
+
+  const overlay = isMobile
+    ? { position: 'fixed', inset: 0, zIndex: 90, background: C.bg, display: 'flex', flexDirection: 'column', overflow: 'auto' }
+    : { position: 'fixed', inset: 0, zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(50,54,58,0.55)', padding: 20 }
+  const box = isMobile
+    ? { background: C.card, display: 'flex', flexDirection: 'column', flex: 1 }
+    : { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, width: 'min(580px, 94vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.22)' }
+
+  return (
+    <div style={overlay} onClick={isMobile ? undefined : onCancel}>
+      <div style={box} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: isMobile ? '16px 16px 12px' : '20px 24px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 16, color: C.text }}>Confirmar mapeo de columnas</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, marginTop: 3 }}>
+              {fileName ? `${fileName} · ` : ''}cabecera detectada en la fila {headerIdx + 1} · {nDatos} fila{nDatos !== 1 ? 's' : ''} de datos
+            </div>
+          </div>
+          <button onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} style={{ color: C.muted }} /></button>
+        </div>
+
+        <div style={{ flex: 1, overflow: 'auto', padding: isMobile ? '14px 16px' : '16px 24px' }}>
+          <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, marginBottom: 14 }}>
+            Asociamos cada columna del cliente a nuestros campos por similitud de nombres. Revisa y corrige si hace falta.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {CAMPOS.map(c => (
+              <div key={c.campo} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '190px 1fr', gap: 10, alignItems: 'center' }}>
+                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <ArrowRight size={12} style={{ color: mapping[c.campo] !== undefined ? C.success : C.border, flexShrink: 0 }} />
+                  {c.label}{c.obligatorio && <span style={{ color: C.danger }}> *</span>}
+                </div>
+                <select value={mapping[c.campo] ?? ''} onChange={e => setCampo(c.campo, e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: C.bg, border: `1px solid ${c.obligatorio && mapping[c.campo] === undefined ? C.danger : C.border}`, color: C.text, outline: 'none' }}>
+                  <option value="">— sin asignar —</option>
+                  {Array.from({ length: nCols }, (_, idx) => <option key={idx} value={idx}>{colTexto(idx)}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <label style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>Nombre del cliente (para recordar este formato y aplicarlo automático la próxima vez)</label>
+            <input value={cliente} onChange={e => setCliente(e.target.value)} placeholder="Ej: Cía. Minera Cerro Verde"
+              style={{ width: '100%', marginTop: 5, padding: '8px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: C.bg, border: `1px solid ${C.border}`, color: C.text, outline: 'none' }} />
+          </div>
+        </div>
+
+        <div style={{ padding: isMobile ? '12px 16px 20px' : '14px 24px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 12, alignItems: 'center' }}>
+          {falta && <span style={{ marginRight: 'auto', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.danger }}>Falta asignar la descripción (*)</span>}
+          <button onClick={onCancel} style={{ padding: '9px 18px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}>Cancelar</button>
+          <button disabled={falta} onClick={() => onConfirm(mapping, cliente)}
+            style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: falta ? C.border : C.primary, color: falta ? C.muted : '#fff', border: 'none', cursor: falta ? 'not-allowed' : 'pointer' }}>
+            Importar y clasificar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Upload screen ─────────────────────────────────────────────────────────────
-function UploadZone({ onFile, onSample, loading, error }) {
+function UploadZone({ onFile, onDemo, onSample, loading, error }) {
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef(null)
 
@@ -271,7 +497,7 @@ function UploadZone({ onFile, onSample, loading, error }) {
             {loading ? 'Procesando archivo...' : dragging ? 'Suelta para cargar' : 'Arrastra el Excel SOLPED aquí'}
           </div>
           <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, lineHeight: 1.7 }}>
-            Exportación SAP de Solicitudes de Pedido<br />
+            Cualquier formato de cliente — detectamos las columnas solas<br />
             Formato <b style={{ color: C.text }}>.xlsx</b> o <b style={{ color: C.text }}>.xls</b>
           </div>
         </div>
@@ -290,16 +516,26 @@ function UploadZone({ onFile, onSample, loading, error }) {
           <div>
             <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: C.danger, marginBottom: 4 }}>Error al procesar el archivo</div>
             <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>{error}</div>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginTop: 6 }}>Asegúrate de que sea una exportación SOLPED de SAP con la estructura estándar (columnas 0–22).</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginTop: 6 }}>Verifica que el archivo tenga una fila de cabecera y al menos una fila de datos.</div>
           </div>
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>¿No tienes un archivo listo?</div>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, maxWidth: 520, width: '100%' }}>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>Probar con Excels de clientes <b style={{ color: C.text }}>desordenados</b> (distinta cabecera y orden):</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <button onClick={() => onDemo(DEMO_CLIENTE_A, 'OC_CerroVerde.xlsx')}
+            style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, background: C.card, border: `1px solid ${C.border}`, padding: '7px 16px', borderRadius: 8, cursor: 'pointer' }}>
+            Cliente A — cabeceras en español + filas de título
+          </button>
+          <button onClick={() => onDemo(DEMO_CLIENTE_B, 'PO_Southern.xlsx')}
+            style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, background: C.card, border: `1px solid ${C.border}`, padding: '7px 16px', borderRadius: 8, cursor: 'pointer' }}>
+            Cliente B — cabeceras en inglés + otro orden
+          </button>
+        </div>
         <button onClick={onSample}
-          style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.primary, background: 'transparent', border: `1px solid ${C.primary}40`, padding: '7px 18px', borderRadius: 8, cursor: 'pointer' }}>
-          Cargar datos de ejemplo (10 ítems)
+          style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.primary, background: 'transparent', border: `1px solid ${C.primary}40`, padding: '7px 18px', borderRadius: 8, cursor: 'pointer', marginTop: 2 }}>
+          Cargar datos de ejemplo ya clasificados (10 ítems)
         </button>
       </div>
     </div>
@@ -316,23 +552,38 @@ export default function Solped({ isMobile = false }) {
   const [filtroCats,setFiltroCats]= useState([])
   const [filtroUrg, setFiltroUrg] = useState('todos')
   const [selected,  setSelected]  = useState(new Set())
+  const [mapeo,     setMapeo]     = useState(null)   // confirmación de mapeo pendiente
 
   const loaded = items.length > 0
 
-  const processFile = useCallback(file => {
-    setLoading(true)
-    setError(null)
+  // Aplica un mapeo (auto o confirmado) y carga los items.
+  const aplicarMapeo = (rows, headerIdx, mapping, fileName, cliente) => {
+    const parsed = construirItems(rows, headerIdx, mapping)
+    if (parsed.length === 0) { setError('No se encontraron filas con descripción de material.'); setMapeo(null); return }
+    if (cliente?.trim()) guardarPlantilla({ cliente: cliente.trim(), huella: huellaCabecera(rows[headerIdx]), mapping, fecha: new Date().toISOString().slice(0, 10) })
+    setItems(parsed); setFilename(fileName); setError(null)
+    setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch(''); setMapeo(null)
+  }
+
+  // Punto de entrada común: filas crudas → detecta cabecera → plantilla o modal.
+  const ingestarRows = (rows, fileName) => {
+    if (!rows || rows.length < 2) { setError('El archivo no tiene filas suficientes.'); return }
+    const headerIdx = detectarCabecera(rows)
+    const headerRow = rows[headerIdx] || []
+    const plantilla = cargarPlantillas().find(p => p.huella === huellaCabecera(headerRow))
+    if (plantilla) { aplicarMapeo(rows, headerIdx, plantilla.mapping, fileName, null); return } // formato conocido ⇒ automático
+    setMapeo({ rows, headerIdx, headerRow, mapping: autoMapear(headerRow), fileName }) // nuevo ⇒ confirmar
+  }
+
+  const processFile = file => {
+    setLoading(true); setError(null)
     const reader = new FileReader()
     reader.onload = e => {
       try {
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' })
-        const parsed = parseSolpedSheet(wb)
-        setItems(parsed)
-        setFilename(file.name)
-        setSelected(new Set())
-        setFiltroCats([])
-        setFiltroUrg('todos')
-        setSearch('')
+        const sheet = wb.Sheets[wb.SheetNames[0]]
+        if (!sheet) throw new Error('El archivo no contiene hojas de cálculo.')
+        ingestarRows(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }), file.name)
       } catch (err) {
         setError(err.message ?? 'Error desconocido.')
       } finally {
@@ -341,7 +592,7 @@ export default function Solped({ isMobile = false }) {
     }
     reader.onerror = () => { setError('No se pudo leer el archivo.'); setLoading(false) }
     reader.readAsArrayBuffer(file)
-  }, [])
+  }
 
   const loadSample = () => {
     setItems(SAMPLE_ITEMS)
@@ -354,7 +605,7 @@ export default function Solped({ isMobile = false }) {
   }
 
   const reset = () => {
-    setItems([]); setFilename(null); setError(null)
+    setItems([]); setFilename(null); setError(null); setMapeo(null)
     setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
   }
 
@@ -403,10 +654,22 @@ export default function Solped({ isMobile = false }) {
 
   const hasFilters = filtroCats.length > 0 || filtroUrg !== 'todos' || search
 
-  if (!loaded) return <UploadZone onFile={processFile} onSample={loadSample} loading={loading} error={error} />
+  const modalMapeo = mapeo && (
+    <MapeoModal data={mapeo} isMobile={isMobile}
+      onCancel={() => setMapeo(null)}
+      onConfirm={(mapping, cliente) => aplicarMapeo(mapeo.rows, mapeo.headerIdx, mapping, mapeo.fileName, cliente)} />
+  )
+
+  if (!loaded) return (
+    <>
+      <UploadZone onFile={processFile} onDemo={ingestarRows} onSample={loadSample} loading={loading} error={error} />
+      {modalMapeo}
+    </>
+  )
 
   return (
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg }}>
+      {modalMapeo}
 
       {/* ── Summary cards ────────────────────────────────────────────────── */}
       <div style={{ padding: isMobile ? '10px 14px' : '10px 24px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 8, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center', paddingBottom: isMobile ? 10 : undefined }}>
