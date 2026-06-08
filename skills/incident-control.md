@@ -76,7 +76,7 @@ TRIAGE (< 15 min para S1/S2)
 COMUNICACIÓN
     ├─► S1/S2: Notificar a todos los tenants afectados (email + WhatsApp)
     ├─► S1: Escalar a CTO inmediatamente
-    └─► Actualizar status page (https://status.minprocure.pe)
+    └─► Actualizar status page (https://status.minos-erp.pe)
     │
     ▼
 MITIGACIÓN (reducir impacto mientras se investiga causa raíz)
@@ -104,7 +104,7 @@ S4: Jira ticket
 ### Template de comunicación al cliente (S1/S2)
 
 ```
-Asunto: [Urgente] Incidencia en plataforma MinProcure — {fecha}
+Asunto: [Urgente] Incidencia en plataforma Minos ERP — {fecha}
 
 Estimado equipo de {cliente},
 
@@ -121,7 +121,7 @@ en cuanto tengamos una actualización o resolución.
 
 Disculpen los inconvenientes.
 
-Equipo MinProcure
+Equipo Minos ERP
 ```
 
 ---
@@ -229,8 +229,8 @@ kubectl rollout undo deployment/backend -n production
 kubectl rollout status deployment/backend -n production
 
 # 5. Verificar health
-curl https://api.minprocure.pe/health
-curl https://api.minprocure.pe/health/ready
+curl https://api.minos-erp.pe/health
+curl https://api.minos-erp.pe/health/ready
 ```
 
 ### RB-002: Base de datos inaccesible
@@ -238,8 +238,8 @@ curl https://api.minprocure.pe/health/ready
 ```bash
 # 1. Verificar estado en Azure Portal
 az postgres flexible-server show \
-  --resource-group rg-minprocure-prod \
-  --name psql-minprocure-prod \
+  --resource-group rg-minos-erp-prod \
+  --name psql-minos-erp-prod \
   --query "state"
 
 # 2. Verificar conexión desde el backend pod

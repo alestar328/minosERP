@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, X, ArrowRight } from 'lucide-react'
+import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, X, ArrowRight, Table, LayoutGrid } from 'lucide-react'
+import SolpedAgrupado from './SolpedAgrupado.jsx'
 
 const C = {
   bg: '#F5F6F7', card: '#FFFFFF', shell: '#354A5E',
@@ -553,6 +554,7 @@ export default function Solped({ isMobile = false }) {
   const [filtroUrg, setFiltroUrg] = useState('todos')
   const [selected,  setSelected]  = useState(new Set())
   const [mapeo,     setMapeo]     = useState(null)   // confirmación de mapeo pendiente
+  const [vista,     setVista]     = useState('tabla') // 'tabla' | 'agrupado'
 
   const loaded = items.length > 0
 
@@ -717,6 +719,18 @@ export default function Solped({ isMobile = false }) {
             <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>
               {filtrada.length} de {items.length} ítems
             </span>
+            {/* Toggle Tabla / Agrupar y asignar proveedor */}
+            <div style={{ display: 'flex', borderRadius: 8, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+              {[['tabla', Table, isMobile ? '' : 'Tabla'], ['agrupado', LayoutGrid, isMobile ? '' : 'Agrupar y asignar']].map(([val, Icon, lbl]) => {
+                const on = vista === val
+                return (
+                  <button key={val} onClick={() => setVista(val)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: on ? 600 : 400, background: on ? C.primary : C.card, color: on ? '#fff' : C.muted, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    <Icon size={13} />{lbl}
+                  </button>
+                )
+              })}
+            </div>
             <button onClick={reset}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
               <Upload size={11} /> Cargar otro
@@ -756,7 +770,11 @@ export default function Solped({ isMobile = false }) {
         </div>
       )}
 
-      {/* ── Table ────────────────────────────────────────────────────────── */}
+      {/* ── Vista agrupada (agrupar por categoría + asignar proveedor) ────── */}
+      {vista === 'agrupado' ? (
+        <SolpedAgrupado items={filtrada} isMobile={isMobile} onEditCategoria={editCategoria} />
+      ) : (
+      /* ── Table ────────────────────────────────────────────────────────── */
       <div style={{ flex: 1, overflow: 'auto' }}>
         <table style={{ width: '100%', minWidth: isMobile ? 380 : 1060, borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, tableLayout: isMobile ? 'auto' : 'fixed' }}>
           {!isMobile && (
@@ -870,6 +888,7 @@ export default function Solped({ isMobile = false }) {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   )
 }

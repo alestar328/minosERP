@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import Solped, { CATEGORIAS_SOLPED } from './Solped.jsx'
 import OrdenCompra from './OrdenCompra.jsx'
+import { PROV_KEY, SAMPLE_PROVEEDORES } from './proveedoresData.js'
+import Login from './Login.jsx'
+import { supabase } from './supabaseClient.js'
 import {
   BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -10,7 +13,7 @@ import {
   LayoutDashboard, Users, ShoppingCart, FileText, Package,
   Bell, Plus, Eye, X, Calendar, CheckCircle, Search,
   ClipboardList, Monitor, Smartphone, MoreHorizontal,
-  ChevronRight, Download, Copy, AlertTriangle,
+  ChevronRight, Download, Copy, AlertTriangle, LogOut,
 } from 'lucide-react'
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
@@ -227,14 +230,6 @@ function GaugeMini({ label, value }) {
 // de auto-clasificación). Así, agregar/editar una categoría se hace en un solo sitio.
 const CATEGORIAS = CATEGORIAS_SOLPED
 
-const SAMPLE_PROVEEDORES = [
-  { id: '1', razonSocial: 'INSUANDINA S.A.C.',          ruc: '20601240001', nombreComercial: 'Insuandina',  contactoNombre: 'Marco Tello',   contactoEmail: 'ventas@insuandina.com.pe',  contactoTelefono: '01-234-5678', categorias: ['Repuestos', 'Servicios'],        notas: 'Proveedor homologado para repuestos de desgaste y revestimientos.',   fechaAlta: '2024-01-15', activo: true  },
-  { id: '2', razonSocial: 'ELECTRO ANDINO CENTRAL S.A.C.',ruc: '20601240002', nombreComercial: 'EAC',         contactoNombre: 'Rosa Quispe',   contactoEmail: 'rquispe@eacperu.com.pe',    contactoTelefono: '01-456-7890', categorias: ['Eléctrico / E&I', 'Repuestos'], notas: 'Ferretería industrial y eléctricos. Lead time 3–5 días.',              fechaAlta: '2024-03-10', activo: true  },
-  { id: '3', razonSocial: 'REACTIVOS Y QUIMICOS ANDINOS S.A.C.', ruc: '20601240003', nombreComercial: 'RQA', contactoNombre: 'Luis Paredes',  contactoEmail: 'lparedes@rqagroup.pe',      contactoTelefono: '01-567-8901', categorias: ['Reactivos', 'Lubricantes'],      notas: 'Proveedor de reactivos para proceso de flotación.',                    fechaAlta: '2024-05-20', activo: true  },
-]
-
-const PROV_KEY = 'minprocure_proveedores'
-
 function inputStyle(err) {
   return { width: '100%', padding: '8px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: C.bg, border: `1px solid ${err ? C.danger : C.border}`, color: C.text, outline: 'none' }
 }
@@ -309,7 +304,7 @@ function Sidebar({ active, onNav }) {
       {/* Shell brand strip */}
       <div style={{ background: C.shell, padding: '14px 18px', flexShrink: 0 }}>
         <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 18, color: '#fff', letterSpacing: '-0.3px' }}>
-          Min<span style={{ color: '#7EC8FF' }}>Procure</span>
+          Minos<span style={{ color: '#7EC8FF' }}> ERP</span>
         </div>
         <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>Outsourcing Estratégico</div>
       </div>
@@ -346,16 +341,16 @@ function Sidebar({ active, onNav }) {
 }
 
 // ─── TOPBAR (Fiori Shell Bar) ─────────────────────────────────────────────────
-function Topbar({ title, isMobile, viewMode, onToggleViewMode }) {
+function Topbar({ title, isMobile, viewMode, onToggleViewMode, onSignOut }) {
   return (
     <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: isMobile ? '0 14px' : '0 20px', height: isMobile ? 50 : 48, background: C.shell, flexShrink: 0, boxShadow: '0 2px 6px rgba(0,0,0,0.18)' }}>
       {isMobile ? (
         <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 17, color: '#fff', letterSpacing: '-0.3px' }}>
-          Min<span style={{ color: '#7EC8FF' }}>Procure</span>
+          Minos<span style={{ color: '#7EC8FF' }}> ERP</span>
         </div>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: '#fff', letterSpacing: '-0.2px' }}>MinProcure</span>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: '#fff', letterSpacing: '-0.2px' }}>Minos<span style={{ color: '#7EC8FF' }}> ERP</span></span>
           <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14 }}>|</span>
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, color: 'rgba(255,255,255,0.85)' }}>{title}</span>
         </div>
@@ -374,6 +369,10 @@ function Topbar({ title, isMobile, viewMode, onToggleViewMode }) {
           </button>
         )}
         <div style={{ width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, borderRadius: '50%', background: 'rgba(255,255,255,0.22)', border: '1px solid rgba(255,255,255,0.35)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: isMobile ? 11 : 12 }}>JR</div>
+        <button onClick={onSignOut} title="Cerrar sesión"
+          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 4, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11 }}>
+          <LogOut size={13} />{!isMobile && <span>Salir</span>}
+        </button>
       </div>
     </div>
   )
@@ -838,7 +837,7 @@ function Dashboard({ isMobile }) {
 }
 
 // ─── FICHA DE PROVEEDOR: OCs por cliente + documentos de homologación ─────────
-// «Cliente» = empresa minera atendida por el outsourcing (MinProcure compra por
+// «Cliente» = empresa minera atendida por el outsourcing (Minos ERP compra por
 // cuenta de varias mineras). Una OC de un proveedor pertenece a un cliente.
 const CLIENTES = ['Minerales del Ande S.A.A.', 'Cía. Minera Cerro Verde', 'Southern Copper Perú', 'Volcan Cía. Minera', 'Nexa Resources Perú']
 const OC_ESTADOS = ['Emitida', 'En tránsito', 'Entregada', 'Entregada', 'Retrasada']
@@ -1475,6 +1474,7 @@ const VIEWS = {
 // ─── APP ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const [view, setView] = useState('dashboard')
+  const [session, setSession] = useState(undefined)   // undefined = cargando, null = sin sesión
   const [viewMode, setViewMode] = useState(() => {
     try { const s = localStorage.getItem('mp_viewmode'); if (s) return s } catch {}
     return window.innerWidth < 900 ? 'mobile' : 'desktop'
@@ -1482,19 +1482,39 @@ export default function App() {
 
   const isMobile = viewMode === 'mobile'
 
+  // Sesión: estado inicial + suscripción a cambios (login/logout/refresh de token).
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
+    return () => sub.subscription.unsubscribe()
+  }, [])
+
   const toggleViewMode = () => {
     const next = isMobile ? 'desktop' : 'mobile'
     setViewMode(next)
     try { localStorage.setItem('mp_viewmode', next) } catch {}
   }
 
+  const signOut = () => supabase.auth.signOut()
+
   const { comp: View, title } = VIEWS[view]
+
+  // Cargando sesión → evita parpadeo del login.
+  if (session === undefined) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100dvh', background: C.bg, fontFamily: 'Inter, sans-serif', fontSize: 13, color: C.muted }}>
+        Cargando…
+      </div>
+    )
+  }
+  // Sin sesión → pantalla de login.
+  if (!session) return <Login />
 
   return (
     <div style={{ display: 'flex', height: '100dvh', overflow: 'hidden', background: C.bg, fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif' }}>
       {!isMobile && <Sidebar active={view} onNav={setView} />}
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0 }}>
-        <Topbar title={title} isMobile={isMobile} viewMode={viewMode} onToggleViewMode={toggleViewMode} />
+        <Topbar title={title} isMobile={isMobile} viewMode={viewMode} onToggleViewMode={toggleViewMode} onSignOut={signOut} />
         <div className="print-content" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <View isMobile={isMobile} />
         </div>
