@@ -26,27 +26,33 @@ const C = {
 }
 
 // ─── DATA ─────────────────────────────────────────────────────────────────────
-const monthlyData = [
-  { mes: 'Dic', solpeds: 28, ocs: 24 },
-  { mes: 'Ene', solpeds: 31, ocs: 29 },
-  { mes: 'Feb', solpeds: 26, ocs: 25 },
-  { mes: 'Mar', solpeds: 34, ocs: 30 },
-  { mes: 'Abr', solpeds: 29, ocs: 28 },
-  { mes: 'May', solpeds: 38, ocs: 34 },
-]
-const recentActivity = [
-  { oc: 'OC-2025-0341', solped: 'SP-2025-0521', proveedor: 'Pirotec Andina S.A.',      estado: 'En tránsito', entrega: '02/06/2025', dias: 5  },
-  { oc: 'OC-2025-0340', solped: 'SP-2025-0519', proveedor: 'Chemindus Perú S.A.',      estado: 'Emitida',     entrega: '10/06/2025', dias: 13 },
-  { oc: 'OC-2025-0339', solped: 'SP-2025-0515', proveedor: 'Maquinex del Perú S.A.',  estado: 'Retrasada',   entrega: '25/05/2025', dias: -3 },
-  { oc: 'OC-2025-0338', solped: 'SP-2025-0514', proveedor: 'GasAndes S.A.C.',          estado: 'En tránsito', entrega: '30/05/2025', dias: 2  },
-  { oc: 'OC-2025-0337', solped: 'SP-2025-0510', proveedor: 'SegurPro Perú S.A.',       estado: 'Entregada',   entrega: '20/05/2025', dias: 0  },
-]
-const alertas = [
-  { tipo: 'danger',  icon: Package,      msg: '2 OCs con entrega vencida',                      sub: 'OC-2025-0339 · OC-2025-0335 — Seguimiento urgente', detail: 'ocs-retrasadas'    },
-  { tipo: 'warn',    icon: Calendar,     msg: '8 entregas previstas en los próximos 7 días',    sub: 'Confirmar despacho con proveedores',                detail: 'entregas-semana'   },
-  { tipo: 'warn',    icon: ClipboardList,msg: '12 SOLPEDs pendientes de procesar',              sub: 'Backlog acumulado — 3 con prioridad alta',          detail: 'solpeds-pendientes'},
-  { tipo: 'success', icon: CheckCircle,  msg: '16 OCs entregadas este mes',                     sub: 'Tasa de cumplimiento: 89% — Meta: 90%',             detail: 'ocs-entregadas'    },
-]
+// ── MOCK desactivado para pruebas con datos reales (borrar más adelante) ──────
+// El Dashboard aún no tiene fuente de datos real; queda en estados vacíos hasta
+// que se conecte. Conservamos los literales originales comentados como referencia.
+// const monthlyData = [
+//   { mes: 'Dic', solpeds: 28, ocs: 24 },
+//   { mes: 'Ene', solpeds: 31, ocs: 29 },
+//   { mes: 'Feb', solpeds: 26, ocs: 25 },
+//   { mes: 'Mar', solpeds: 34, ocs: 30 },
+//   { mes: 'Abr', solpeds: 29, ocs: 28 },
+//   { mes: 'May', solpeds: 38, ocs: 34 },
+// ]
+const monthlyData = []
+// const recentActivity = [
+//   { oc: 'OC-2025-0341', solped: 'SP-2025-0521', proveedor: 'Pirotec Andina S.A.',      estado: 'En tránsito', entrega: '02/06/2025', dias: 5  },
+//   { oc: 'OC-2025-0340', solped: 'SP-2025-0519', proveedor: 'Chemindus Perú S.A.',      estado: 'Emitida',     entrega: '10/06/2025', dias: 13 },
+//   { oc: 'OC-2025-0339', solped: 'SP-2025-0515', proveedor: 'Maquinex del Perú S.A.',  estado: 'Retrasada',   entrega: '25/05/2025', dias: -3 },
+//   { oc: 'OC-2025-0338', solped: 'SP-2025-0514', proveedor: 'GasAndes S.A.C.',          estado: 'En tránsito', entrega: '30/05/2025', dias: 2  },
+//   { oc: 'OC-2025-0337', solped: 'SP-2025-0510', proveedor: 'SegurPro Perú S.A.',       estado: 'Entregada',   entrega: '20/05/2025', dias: 0  },
+// ]
+const recentActivity = []
+// const alertas = [
+//   { tipo: 'danger',  icon: Package,      msg: '2 OCs con entrega vencida',                      sub: 'OC-2025-0339 · OC-2025-0335 — Seguimiento urgente', detail: 'ocs-retrasadas'    },
+//   { tipo: 'warn',    icon: Calendar,     msg: '8 entregas previstas en los próximos 7 días',    sub: 'Confirmar despacho con proveedores',                detail: 'entregas-semana'   },
+//   { tipo: 'warn',    icon: ClipboardList,msg: '12 SOLPEDs pendientes de procesar',              sub: 'Backlog acumulado — 3 con prioridad alta',          detail: 'solpeds-pendientes'},
+//   { tipo: 'success', icon: CheckCircle,  msg: '16 OCs entregadas este mes',                     sub: 'Tasa de cumplimiento: 89% — Meta: 90%',             detail: 'ocs-entregadas'    },
+// ]
+const alertas = []
 // ─── DRILL-DOWN DATASETS (dashboard → detalle) ────────────────────────────────
 // Datos mock detallados que respaldan cada KPI y cada alerta del dashboard.
 const _PROV = ['Pirotec Andina S.A.', 'Chemindus Perú S.A.', 'Maquinex del Perú S.A.', 'GasAndes S.A.C.', 'SegurPro Perú S.A.', 'Rodacol S.A.C.', 'Metalmaq Industrial S.R.L.', 'Neumatex Andina S.A.', 'Lubriandes S.A.', 'GasIndus S.A.C.', 'Laborindus S.A.C.', 'Segurindus Perú S.A.C.']
@@ -57,64 +63,70 @@ const _fecha = (offset) => {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
+// ── MOCK desactivado para pruebas con datos reales (borrar más adelante) ──────
 // KPI «SOLPEDs pendientes» (12) · también alerta «12 SOLPEDs pendientes»
-const solpedsPendientes = [
-  { id: 'SP-2025-0533', solicitante: 'C. Mendoza',  area: 'Operaciones Mina',     categoria: 'Explosivos',     fecha: '05/06/2025', prioridad: 'Alta',  monto: 124000 },
-  { id: 'SP-2025-0532', solicitante: 'L. Paredes',  area: 'Planta Concentradora', categoria: 'Reactivos',      fecha: '05/06/2025', prioridad: 'Alta',  monto: 86000  },
-  { id: 'SP-2025-0531', solicitante: 'R. Quispe',   area: 'Mantenimiento',        categoria: 'Repuestos OEM',  fecha: '04/06/2025', prioridad: 'Media', monto: 42000  },
-  { id: 'SP-2025-0530', solicitante: 'M. Tello',    area: 'Mantenimiento',        categoria: 'Repuestos',      fecha: '04/06/2025', prioridad: 'Media', monto: 18500  },
-  { id: 'SP-2025-0529', solicitante: 'A. Flores',   area: 'Seguridad',            categoria: 'EPP',            fecha: '03/06/2025', prioridad: 'Alta',  monto: 23000  },
-  { id: 'SP-2025-0528', solicitante: 'J. Ríos',     area: 'Logística',            categoria: 'Combustibles',   fecha: '03/06/2025', prioridad: 'Baja',  monto: 54000  },
-  { id: 'SP-2025-0527', solicitante: 'P. Salas',    area: 'Laboratorio',          categoria: 'Reactivos',      fecha: '02/06/2025', prioridad: 'Media', monto: 12000  },
-  { id: 'SP-2025-0526', solicitante: 'D. Cárdenas', area: 'Operaciones Mina',     categoria: 'Maquinaria',     fecha: '02/06/2025', prioridad: 'Baja',  monto: 310000 },
-  { id: 'SP-2025-0525', solicitante: 'V. Romero',   area: 'Eléctrico / E&I',      categoria: 'Eléctrico / E&I',fecha: '01/06/2025', prioridad: 'Media', monto: 67000  },
-  { id: 'SP-2025-0524', solicitante: 'S. Núñez',    area: 'Mantenimiento',        categoria: 'Lubricantes',    fecha: '01/06/2025', prioridad: 'Baja',  monto: 29000  },
-  { id: 'SP-2025-0523', solicitante: 'F. Aguilar',  area: 'Planta Concentradora', categoria: 'Insumos',        fecha: '31/05/2025', prioridad: 'Baja',  monto: 8400   },
-  { id: 'SP-2025-0522', solicitante: 'G. Loayza',   area: 'Seguridad',            categoria: 'EPP',            fecha: '31/05/2025', prioridad: 'Media', monto: 15600  },
-]
+// const solpedsPendientes = [
+//   { id: 'SP-2025-0533', solicitante: 'C. Mendoza',  area: 'Operaciones Mina',     categoria: 'Explosivos',     fecha: '05/06/2025', prioridad: 'Alta',  monto: 124000 },
+//   { id: 'SP-2025-0532', solicitante: 'L. Paredes',  area: 'Planta Concentradora', categoria: 'Reactivos',      fecha: '05/06/2025', prioridad: 'Alta',  monto: 86000  },
+//   { id: 'SP-2025-0531', solicitante: 'R. Quispe',   area: 'Mantenimiento',        categoria: 'Repuestos OEM',  fecha: '04/06/2025', prioridad: 'Media', monto: 42000  },
+//   { id: 'SP-2025-0530', solicitante: 'M. Tello',    area: 'Mantenimiento',        categoria: 'Repuestos',      fecha: '04/06/2025', prioridad: 'Media', monto: 18500  },
+//   { id: 'SP-2025-0529', solicitante: 'A. Flores',   area: 'Seguridad',            categoria: 'EPP',            fecha: '03/06/2025', prioridad: 'Alta',  monto: 23000  },
+//   { id: 'SP-2025-0528', solicitante: 'J. Ríos',     area: 'Logística',            categoria: 'Combustibles',   fecha: '03/06/2025', prioridad: 'Baja',  monto: 54000  },
+//   { id: 'SP-2025-0527', solicitante: 'P. Salas',    area: 'Laboratorio',          categoria: 'Reactivos',      fecha: '02/06/2025', prioridad: 'Media', monto: 12000  },
+//   { id: 'SP-2025-0526', solicitante: 'D. Cárdenas', area: 'Operaciones Mina',     categoria: 'Maquinaria',     fecha: '02/06/2025', prioridad: 'Baja',  monto: 310000 },
+//   { id: 'SP-2025-0525', solicitante: 'V. Romero',   area: 'Eléctrico / E&I',      categoria: 'Eléctrico / E&I',fecha: '01/06/2025', prioridad: 'Media', monto: 67000  },
+//   { id: 'SP-2025-0524', solicitante: 'S. Núñez',    area: 'Mantenimiento',        categoria: 'Lubricantes',    fecha: '01/06/2025', prioridad: 'Baja',  monto: 29000  },
+//   { id: 'SP-2025-0523', solicitante: 'F. Aguilar',  area: 'Planta Concentradora', categoria: 'Insumos',        fecha: '31/05/2025', prioridad: 'Baja',  monto: 8400   },
+//   { id: 'SP-2025-0522', solicitante: 'G. Loayza',   area: 'Seguridad',            categoria: 'EPP',            fecha: '31/05/2025', prioridad: 'Media', monto: 15600  },
+// ]
+const solpedsPendientes = []
 
 // KPI «OCs activas» (34)
-const ocsActivas = Array.from({ length: 34 }, (_, i) => {
-  const dias = 3 + (i * 7) % 22
-  return {
-    oc:        `OC-2025-${String(340 - i).padStart(4, '0')}`,
-    solped:    `SP-2025-${String(520 - i).padStart(4, '0')}`,
-    proveedor: _PROV[i % _PROV.length],
-    categoria: _CAT[i % _CAT.length],
-    estado:    i % 3 === 0 ? 'Emitida' : 'En tránsito',
-    entrega:   _fecha(dias),
-    dias,
-    monto:     18000 + ((i * 37) % 80) * 1500,
-  }
-})
+// const ocsActivas = Array.from({ length: 34 }, (_, i) => {
+//   const dias = 3 + (i * 7) % 22
+//   return {
+//     oc:        `OC-2025-${String(340 - i).padStart(4, '0')}`,
+//     solped:    `SP-2025-${String(520 - i).padStart(4, '0')}`,
+//     proveedor: _PROV[i % _PROV.length],
+//     categoria: _CAT[i % _CAT.length],
+//     estado:    i % 3 === 0 ? 'Emitida' : 'En tránsito',
+//     entrega:   _fecha(dias),
+//     dias,
+//     monto:     18000 + ((i * 37) % 80) * 1500,
+//   }
+// })
+const ocsActivas = []
 
 // KPI «Entregas esta semana» (8) · también alerta «8 entregas previstas»
-const entregasSemana = [
-  { oc: 'OC-2025-0341', proveedor: 'Pirotec Andina S.A.',     categoria: 'Explosivos',   entrega: '09/06/2025', dias: 2, estado: 'En tránsito', contacto: 'ventas@pirotec.com.pe'    },
-  { oc: 'OC-2025-0340', proveedor: 'Chemindus Perú S.A.',     categoria: 'Reactivos',    entrega: '10/06/2025', dias: 3, estado: 'Emitida',     contacto: 'pedidos@chemindus.com.pe' },
-  { oc: 'OC-2025-0338', proveedor: 'GasAndes S.A.C.',         categoria: 'Combustibles', entrega: '10/06/2025', dias: 3, estado: 'En tránsito', contacto: 'despacho@gasandes.com.pe' },
-  { oc: 'OC-2025-0336', proveedor: 'SegurPro Perú S.A.',      categoria: 'EPP',          entrega: '11/06/2025', dias: 4, estado: 'En tránsito', contacto: 'ventas@segurpro.com.pe'   },
-  { oc: 'OC-2025-0334', proveedor: 'Metalmaq Industrial S.R.L.', categoria: 'Maquinaria',entrega: '12/06/2025', dias: 5, estado: 'Emitida',     contacto: 'compras@metalmaq.com.pe' },
-  { oc: 'OC-2025-0333', proveedor: 'GasIndus S.A.C.',         categoria: 'Gases',        entrega: '12/06/2025', dias: 5, estado: 'En tránsito', contacto: 'ventas@gasindus.com.pe'   },
-  { oc: 'OC-2025-0332', proveedor: 'Lubriandes S.A.',         categoria: 'Lubricantes',  entrega: '13/06/2025', dias: 6, estado: 'En tránsito', contacto: 'pedidos@lubriandes.com.pe'},
-  { oc: 'OC-2025-0331', proveedor: 'Rodacol S.A.C.',          categoria: 'Repuestos',    entrega: '14/06/2025', dias: 7, estado: 'Emitida',     contacto: 'ventas@rodacol.com.pe'    },
-]
+// const entregasSemana = [
+//   { oc: 'OC-2025-0341', proveedor: 'Pirotec Andina S.A.',     categoria: 'Explosivos',   entrega: '09/06/2025', dias: 2, estado: 'En tránsito', contacto: 'ventas@pirotec.com.pe'    },
+//   { oc: 'OC-2025-0340', proveedor: 'Chemindus Perú S.A.',     categoria: 'Reactivos',    entrega: '10/06/2025', dias: 3, estado: 'Emitida',     contacto: 'pedidos@chemindus.com.pe' },
+//   { oc: 'OC-2025-0338', proveedor: 'GasAndes S.A.C.',         categoria: 'Combustibles', entrega: '10/06/2025', dias: 3, estado: 'En tránsito', contacto: 'despacho@gasandes.com.pe' },
+//   { oc: 'OC-2025-0336', proveedor: 'SegurPro Perú S.A.',      categoria: 'EPP',          entrega: '11/06/2025', dias: 4, estado: 'En tránsito', contacto: 'ventas@segurpro.com.pe'   },
+//   { oc: 'OC-2025-0334', proveedor: 'Metalmaq Industrial S.R.L.', categoria: 'Maquinaria',entrega: '12/06/2025', dias: 5, estado: 'Emitida',     contacto: 'compras@metalmaq.com.pe' },
+//   { oc: 'OC-2025-0333', proveedor: 'GasIndus S.A.C.',         categoria: 'Gases',        entrega: '12/06/2025', dias: 5, estado: 'En tránsito', contacto: 'ventas@gasindus.com.pe'   },
+//   { oc: 'OC-2025-0332', proveedor: 'Lubriandes S.A.',         categoria: 'Lubricantes',  entrega: '13/06/2025', dias: 6, estado: 'En tránsito', contacto: 'pedidos@lubriandes.com.pe'},
+//   { oc: 'OC-2025-0331', proveedor: 'Rodacol S.A.C.',          categoria: 'Repuestos',    entrega: '14/06/2025', dias: 7, estado: 'Emitida',     contacto: 'ventas@rodacol.com.pe'    },
+// ]
+const entregasSemana = []
 
 // KPI «OCs retrasadas» (2) · también alerta «2 OCs con entrega vencida»
-const ocsRetrasadas = [
-  { oc: 'OC-2025-0339', solped: 'SP-2025-0515', proveedor: 'Maquinex del Perú S.A.', entrega: '25/05/2025', retraso: 3, monto: 210000, motivo: 'Demora en aduana — importación', contacto: 'import@maquinex.com.pe' },
-  { oc: 'OC-2025-0335', solped: 'SP-2025-0508', proveedor: 'Rodacol S.A.C.',         entrega: '22/05/2025', retraso: 6, monto: 48000,  motivo: 'Stock insuficiente del proveedor', contacto: 'ventas@rodacol.com.pe'   },
-]
+// const ocsRetrasadas = [
+//   { oc: 'OC-2025-0339', solped: 'SP-2025-0515', proveedor: 'Maquinex del Perú S.A.', entrega: '25/05/2025', retraso: 3, monto: 210000, motivo: 'Demora en aduana — importación', contacto: 'import@maquinex.com.pe' },
+//   { oc: 'OC-2025-0335', solped: 'SP-2025-0508', proveedor: 'Rodacol S.A.C.',         entrega: '22/05/2025', retraso: 6, monto: 48000,  motivo: 'Stock insuficiente del proveedor', contacto: 'ventas@rodacol.com.pe'   },
+// ]
+const ocsRetrasadas = []
 
 // Alerta «16 OCs entregadas este mes»
-const ocsEntregadas = Array.from({ length: 16 }, (_, i) => ({
-  oc:        `OC-2025-${String(306 - i).padStart(4, '0')}`,
-  proveedor: _PROV[i % _PROV.length],
-  categoria: _CAT[i % _CAT.length],
-  entrega:   _fecha(-2 - i * 2),
-  otif:      [100, 100, 96, 100, 92, 100, 88, 100, 100, 95, 100, 90, 100, 100, 97, 100][i],
-  monto:     15000 + ((i * 29) % 70) * 1400,
-}))
+// const ocsEntregadas = Array.from({ length: 16 }, (_, i) => ({
+//   oc:        `OC-2025-${String(306 - i).padStart(4, '0')}`,
+//   proveedor: _PROV[i % _PROV.length],
+//   categoria: _CAT[i % _CAT.length],
+//   entrega:   _fecha(-2 - i * 2),
+//   otif:      [100, 100, 96, 100, 92, 100, 88, 100, 100, 95, 100, 90, 100, 100, 97, 100][i],
+//   monto:     15000 + ((i * 29) % 70) * 1400,
+// }))
+const ocsEntregadas = []
 
 const proveedoresStatic = [
   { id: 1, nombre: 'Pirotec Andina S.A.',      ruc: '20601234001', cats: ['Explosivos', 'Insumos'],       score: 92, estado: 'Homologado',  otif: 96 },
@@ -137,26 +149,29 @@ const provScores = {
   5: { fin: 76, tec: 82, leg: 80, amb: 78 }, 6: { fin: 50, tec: 58, leg: 55, amb: 52 },
   7: { fin: 35, tec: 40, leg: 38, amb: 36 }, 8: { fin: 96, tec: 95, leg: 94, amb: 95 },
 }
-const acuerdos = {
-  vigentes: [
-    { nombre: 'Suministro Explosivos ANFO',  proveedor: 'Pirotec Andina S.A.',      cat: 'Explosivos',   valor: 2400000, vence: '15/05/2026', ejec: 38 },
-    { nombre: 'Reactivos Flotación Cu',      proveedor: 'Chemindus Perú S.A.',      cat: 'Reactivos',    valor: 1800000, vence: '30/09/2025', ejec: 71 },
-    { nombre: 'Repuestos Flota Mina',        proveedor: 'Metalmaq Industrial S.R.L.',cat: 'Maquinaria',   valor: 3200000, vence: '31/12/2025', ejec: 44 },
-    { nombre: 'EPP Estándar Corporativo',    proveedor: 'SegurPro Perú S.A.',       cat: 'EPP',          valor: 480000,  vence: '30/06/2025', ejec: 82 },
-    { nombre: 'Combustibles Planta',         proveedor: 'GasAndes S.A.C.',          cat: 'Combustibles', valor: 960000,  vence: '28/02/2026', ejec: 29 },
-    { nombre: 'Rodamientos Críticos Mina',   proveedor: 'Rodacol S.A.C.',           cat: 'Repuestos',    valor: 240000,  vence: '31/10/2025', ejec: 56 },
-    { nombre: 'Insumos Lab Metalurgia',      proveedor: 'Laborindus S.A.C.',        cat: 'Reactivos',    valor: 180000,  vence: '15/11/2025', ejec: 48 },
-    { nombre: 'Vestuario Industrial',        proveedor: 'Segurindus Perú S.A.C.',   cat: 'EPP',          valor: 120000,  vence: '31/08/2025', ejec: 65 },
-  ],
-  porRenovar: [
-    { nombre: 'Neumáticos Flota Mina',   proveedor: 'Neumatex Andina S.A.',  cat: 'Repuestos OEM', valor: 560000, vence: '30/06/2025', ejec: 91 },
-    { nombre: 'Gases Industriales',      proveedor: 'GasIndus S.A.C.',       cat: 'Gases',         valor: 320000, vence: '15/07/2025', ejec: 87 },
-    { nombre: 'Aceites y Lubricantes',   proveedor: 'Lubriandes S.A.',       cat: 'Insumos',       valor: 240000, vence: '20/07/2025', ejec: 79 },
-  ],
-  vencidos: [
-    { nombre: 'Acero Estructural',       proveedor: 'Siderúrgica del Sur S.A.', cat: 'Materiales', valor: 180000, vence: '30/04/2025', ejec: 100 },
-  ],
-}
+// ── MOCK desactivado para pruebas con datos reales (borrar más adelante) ──────
+// Acuerdos aún no tiene fuente de datos real; queda en estado vacío hasta conectar.
+// const acuerdos = {
+//   vigentes: [
+//     { nombre: 'Suministro Explosivos ANFO',  proveedor: 'Pirotec Andina S.A.',      cat: 'Explosivos',   valor: 2400000, vence: '15/05/2026', ejec: 38 },
+//     { nombre: 'Reactivos Flotación Cu',      proveedor: 'Chemindus Perú S.A.',      cat: 'Reactivos',    valor: 1800000, vence: '30/09/2025', ejec: 71 },
+//     { nombre: 'Repuestos Flota Mina',        proveedor: 'Metalmaq Industrial S.R.L.',cat: 'Maquinaria',   valor: 3200000, vence: '31/12/2025', ejec: 44 },
+//     { nombre: 'EPP Estándar Corporativo',    proveedor: 'SegurPro Perú S.A.',       cat: 'EPP',          valor: 480000,  vence: '30/06/2025', ejec: 82 },
+//     { nombre: 'Combustibles Planta',         proveedor: 'GasAndes S.A.C.',          cat: 'Combustibles', valor: 960000,  vence: '28/02/2026', ejec: 29 },
+//     { nombre: 'Rodamientos Críticos Mina',   proveedor: 'Rodacol S.A.C.',           cat: 'Repuestos',    valor: 240000,  vence: '31/10/2025', ejec: 56 },
+//     { nombre: 'Insumos Lab Metalurgia',      proveedor: 'Laborindus S.A.C.',        cat: 'Reactivos',    valor: 180000,  vence: '15/11/2025', ejec: 48 },
+//     { nombre: 'Vestuario Industrial',        proveedor: 'Segurindus Perú S.A.C.',   cat: 'EPP',          valor: 120000,  vence: '31/08/2025', ejec: 65 },
+//   ],
+//   porRenovar: [
+//     { nombre: 'Neumáticos Flota Mina',   proveedor: 'Neumatex Andina S.A.',  cat: 'Repuestos OEM', valor: 560000, vence: '30/06/2025', ejec: 91 },
+//     { nombre: 'Gases Industriales',      proveedor: 'GasIndus S.A.C.',       cat: 'Gases',         valor: 320000, vence: '15/07/2025', ejec: 87 },
+//     { nombre: 'Aceites y Lubricantes',   proveedor: 'Lubriandes S.A.',       cat: 'Insumos',       valor: 240000, vence: '20/07/2025', ejec: 79 },
+//   ],
+//   vencidos: [
+//     { nombre: 'Acero Estructural',       proveedor: 'Siderúrgica del Sur S.A.', cat: 'Materiales', valor: 180000, vence: '30/04/2025', ejec: 100 },
+//   ],
+// }
+const acuerdos = { vigentes: [], porRenovar: [], vencidos: [] }
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 const fmt = (n) => new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
@@ -696,18 +711,19 @@ function Dashboard({ isMobile }) {
 
   const [detailId, setDetailId] = useState(null)
 
+  // Valores en 0 / vacío hasta conectar el Dashboard a datos reales.
   const kpis = [
-    { label: 'SOLPEDs pendientes',  value: '12', sub: 'sin procesar',      icon: ClipboardList, color: C.warn,    detail: 'solpeds-pendientes' },
-    { label: 'OCs activas',         value: '34', sub: 'con proveedores',   icon: ShoppingCart,  color: C.primary, detail: 'ocs-activas'        },
-    { label: 'Entregas esta semana',value:  '8', sub: 'próximos 7 días',   icon: Calendar,      color: C.info,    detail: 'entregas-semana'    },
-    { label: 'OCs retrasadas',      value:  '2', sub: 'requieren acción',  icon: Package,       color: C.danger,  detail: 'ocs-retrasadas'     },
+    { label: 'SOLPEDs pendientes',  value: String(solpedsPendientes.length), sub: 'sin procesar',      icon: ClipboardList, color: C.warn,    detail: 'solpeds-pendientes' },
+    { label: 'OCs activas',         value: String(ocsActivas.length),        sub: 'con proveedores',   icon: ShoppingCart,  color: C.primary, detail: 'ocs-activas'        },
+    { label: 'Entregas esta semana',value: String(entregasSemana.length),    sub: 'próximos 7 días',   icon: Calendar,      color: C.info,    detail: 'entregas-semana'    },
+    { label: 'OCs retrasadas',      value: String(ocsRetrasadas.length),     sub: 'requieren acción',  icon: Package,       color: C.danger,  detail: 'ocs-retrasadas'     },
   ]
 
   const pipeline = [
-    { label: 'SOLPED pendiente', count: 12, color: C.warn    },
-    { label: 'OC emitida',       count: 18, color: C.primary },
-    { label: 'En tránsito',      count: 16, color: C.info    },
-    { label: 'Entregada (mes)',   count: 16, color: C.success },
+    { label: 'SOLPED pendiente', count: 0, color: C.warn    },
+    { label: 'OC emitida',       count: 0, color: C.primary },
+    { label: 'En tránsito',      count: 0, color: C.info    },
+    { label: 'Entregada (mes)',   count: 0, color: C.success },
   ]
 
   return (
@@ -736,6 +752,11 @@ function Dashboard({ isMobile }) {
               </div>
             ))}
           </div>
+          {monthlyData.length === 0 ? (
+            <div style={{ height: isMobile ? 140 : 190, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
+              Sin datos para mostrar todavía.
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height={isMobile ? 140 : 190}>
             <BarChart data={monthlyData} margin={{ top: 0, right: 6, left: -20, bottom: 0 }} barCategoryGap="30%">
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
@@ -749,6 +770,7 @@ function Dashboard({ isMobile }) {
               <Bar dataKey="ocs"     fill={C.primary}         radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          )}
         </Card>
 
         {/* Pipeline */}
@@ -800,6 +822,9 @@ function Dashboard({ isMobile }) {
               </tr>
             </thead>
             <tbody>
+              {recentActivity.length === 0 && (
+                <tr><td colSpan={isMobile ? 4 : 5} style={{ padding: 28, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>Sin órdenes de compra para mostrar.</td></tr>
+              )}
               {recentActivity.map((r, i) => {
                 const dc = r.dias < 0 ? C.danger : r.dias <= 3 ? C.warn : C.success
                 return (
@@ -824,7 +849,9 @@ function Dashboard({ isMobile }) {
         <Card className="p-4">
           <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Alertas</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {alertas.map((a, i) => (
+            {alertas.length === 0 ? (
+              <div style={{ padding: '18px 4px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>Sin alertas por ahora.</div>
+            ) : alertas.map((a, i) => (
               <AlertRow key={i} a={a} isLast={i === alertas.length - 1} onClick={() => setDetailId(a.detail)} />
             ))}
           </div>
@@ -842,23 +869,27 @@ function Dashboard({ isMobile }) {
 const CLIENTES = ['Minerales del Ande S.A.A.', 'Cía. Minera Cerro Verde', 'Southern Copper Perú', 'Volcan Cía. Minera', 'Nexa Resources Perú']
 const OC_ESTADOS = ['Emitida', 'En tránsito', 'Entregada', 'Entregada', 'Retrasada']
 
-// OCs mock deterministas para un proveedor (semilla a partir del RUC).
+// ── MOCK desactivado para pruebas con datos reales (borrar más adelante) ──────
+// Antes generaba OCs deterministas por RUC; ahora la ficha arranca sin OCs hasta
+// que se conecte a datos reales. Conservamos la lógica comentada como referencia.
 function ocsDeProveedor(prov) {
-  const seed = Number(String(prov.ruc).slice(-4)) || (prov.id.length * 137)
-  const n = 6 + (seed % 9) // 6..14 OCs
-  const cats = prov.categorias?.length ? prov.categorias : ['Otros']
-  return Array.from({ length: n }, (_, i) => {
-    const s = seed + i * 31
-    return {
-      oc:        `OC-2025-${String(400 - (seed % 60) - i).padStart(4, '0')}`,
-      cliente:   CLIENTES[(seed + i) % CLIENTES.length],
-      categoria: cats[i % cats.length],
-      estado:    OC_ESTADOS[s % OC_ESTADOS.length],
-      emision:   _fecha(-90 + (s % 70)),
-      entrega:   _fecha(-50 + (s % 95)),
-      monto:     12000 + (s % 90) * 1600,
-    }
-  })
+  void prov
+  return []
+  // const seed = Number(String(prov.ruc).slice(-4)) || (prov.id.length * 137)
+  // const n = 6 + (seed % 9) // 6..14 OCs
+  // const cats = prov.categorias?.length ? prov.categorias : ['Otros']
+  // return Array.from({ length: n }, (_, i) => {
+  //   const s = seed + i * 31
+  //   return {
+  //     oc:        `OC-2025-${String(400 - (seed % 60) - i).padStart(4, '0')}`,
+  //     cliente:   CLIENTES[(seed + i) % CLIENTES.length],
+  //     categoria: cats[i % cats.length],
+  //     estado:    OC_ESTADOS[s % OC_ESTADOS.length],
+  //     emision:   _fecha(-90 + (s % 70)),
+  //     entrega:   _fecha(-50 + (s % 95)),
+  //     monto:     12000 + (s % 90) * 1600,
+  //   }
+  // })
 }
 
 const PROV_OC_COLUMNS = [
@@ -1041,6 +1072,9 @@ function ProveedorDialog({ prov, isMobile, onClose, onSetHomologado }) {
                     </tr>
                   </thead>
                   <tbody>
+                    {ocsFiltradas.length === 0 && (
+                      <tr><td colSpan={PROV_OC_COLUMNS.length} style={{ padding: 28, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>Este proveedor aún no tiene órdenes de compra.</td></tr>
+                    )}
                     {ocsFiltradas.map((r, i) => (
                       <tr key={i} style={{ borderBottom: `1px solid ${C.border}40` }}>
                         {PROV_OC_COLUMNS.map(c => (
@@ -1433,6 +1467,9 @@ function Acuerdos({ isMobile }) {
               <span style={{ marginLeft: 'auto', fontFamily: 'Inter, sans-serif', fontSize: 11, background: `${color}20`, color, padding: '2px 8px', borderRadius: 99 }}>{data.length}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {data.length === 0 && (
+                <div style={{ padding: '14px 12px', borderRadius: 8, border: `1px dashed ${C.border}`, fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, textAlign: 'center' }}>Sin acuerdos.</div>
+              )}
               {data.map((a, i) => (
                 <div key={i} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.border}` }}>
                   <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 2 }}>{a.nombre}</div>

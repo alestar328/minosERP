@@ -24,7 +24,8 @@ const mkItem = () => ({
   unidad: 'UN', cantidad: 1, precioUnitario: 0, fechaEntrega: ''
 })
 
-// ─── EXAMPLE DATA ─────────────────────────────────────────────────────────────
+// ─── EXAMPLE DATA (MOCK desactivado para pruebas reales — borrar más adelante) ─
+/*
 const EJEMPLO = {
   numeroOC: '4500047816',
   fechaEmision: '2025-05-20',
@@ -59,6 +60,7 @@ const EJEMPLO = {
   lugarEntrega: 'ALMACEN UNIDAD CERRO AZUL',
   formaPago: 30
 }
+*/
 
 const INIT = () => ({
   numeroOC: '4500047816',
@@ -337,10 +339,12 @@ function FormOC({ data, setData, onPreview, isMobile }) {
 
       {/* ACTION BUTTONS */}
       <div style={{ display: 'flex', gap: 10, paddingBottom: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        {/* ── MOCK desactivado para pruebas reales (borrar más adelante) ──
         <button onClick={() => setData(EJEMPLO)}
           style={{ padding: '10px 20px', borderRadius: 8, background: 'none', border: `1px solid ${C.border}`, color: C.muted, fontFamily: 'Inter, sans-serif', fontSize: 12, cursor: 'pointer' }}>
           Cargar ejemplo
         </button>
+        */}
         <button onClick={onPreview}
           style={{ padding: '10px 28px', borderRadius: 8, background: C.primary, border: 'none', color: C.bg, fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
           Ver documento →

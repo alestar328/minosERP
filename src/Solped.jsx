@@ -69,12 +69,15 @@ export const CATEGORIAS_SOLPED = [
     ],
   },
   { nombre: 'Otros', bg: '#D3D1C7', fg: '#444441', reglas: [] },
+  // Categoría vacía: SOLPEDs que conceptualmente no tienen categoría (sin clasificar).
+  // Es el destino por defecto de clasificarItem cuando ninguna regla coincide.
+  { nombre: 'No categoria', bg: '#ECECEC', fg: '#8A8D90', reglas: [] },
 ]
 
 /**
  * Classifies a SOLPED item into a category.
  * Pure function — applies rules in declaration order; first match wins.
- * Falls back to "Otros" if no rule matches.
+ * Falls back to "No categoria" (sin clasificar) if no rule matches.
  */
 export function clasificarItem(item, categorias = CATEGORIAS_SOLPED) {
   const textoBreve = (item.textoBreve || '').toUpperCase()
@@ -95,7 +98,7 @@ export function clasificarItem(item, categorias = CATEGORIAS_SOLPED) {
       if (regla.tipo === 'equals'     && regla.valores.some(v => valor === v))                        return cat.nombre
     }
   }
-  return 'Otros'
+  return 'No categoria'
 }
 
 // ── Ingesta determinista: mapeo de columnas heterogéneas (sin IA) ─────────────
@@ -273,46 +276,43 @@ const guardarPlantilla = p => {
   try { localStorage.setItem(MAP_KEY, JSON.stringify([p, ...all].slice(0, 50))) } catch { /* almacenamiento no disponible */ }
 }
 
-// ── Excels de ejemplo «desordenados» (distintos clientes) para probar el mapeo ──
-const DEMO_CLIENTE_A = [
-  ['ORDEN DE COMPRA — CÍA. MINERA CERRO VERDE', '', '', '', '', '', '', '', '', ''],
-  ['Generado el 02/06/2025 · Unidad Cerro Verde', '', '', '', '', '', '', '', '', ''],
-  ['Item', 'Cód. SAP', 'Descripción del Material', 'Cant.', 'U.M.', 'Familia', 'Precio Total', 'Mon.', 'Solicitante', 'Centro'],
-  ['10', 'M-2341', 'RODAMIENTO SKF 23040 CC/W33 C3', '4', 'UND', '29001', '4,800.00', 'USD', 'JLOPEZ', 'Planta Concentradora'],
-  ['20', 'X-0001', 'ANFO PESADO 94/6 PARA VOLADURA SUBTERRANEA', '120', 'TM', '11001', '98,400.00', 'USD', 'PGUERRERO', 'Mina'],
-  ['30', 'S-0234', 'CASCO MINERO 3M H700 BLANCO TIPO I', '50', 'UND', '34005', '1,750.00', 'USD', 'HSALAS', 'Seguridad'],
-  ['40', 'Q-0045', 'XANTATO ISOPROPILICO AEROPHINE 3418A', '2000', 'KG', '16020', '9,800.00', 'USD', 'PCASAS', 'Procesamiento'],
-  ['50', 'L-0012', 'GRASA MOLYKOTE BR2 PLUS 180KG', '5', 'BLD', '17001', '2,250.00', 'USD', 'JLOPEZ', 'Planta'],
-]
-const DEMO_CLIENTE_B = [
-  ['Line', 'Part Number', 'Qty', 'UOM', 'Material Description', 'Commodity Group', 'Net Value', 'Currency', 'Requested By', 'Need Date'],
-  ['1', 'E-0099', '2', 'EA', 'VARIADOR DE FRECUENCIA ABB ACS880 55KW', '26010', '18600', 'USD', 'FSORIA', '10/03/2025'],
-  ['2', 'R-0055', '6', 'KIT', 'KIT SELLO MECANICO BOMBA WARMAN 6/4 AH', '15020', '12150', 'PEN', 'JLOPEZ', '25/04/2025'],
-  ['3', 'C-0078', '30', 'ROL', 'TUBERIA HDPE DN200 PN10 x 6m', '28003', '6750', 'USD', 'MQUISPE', '18/04/2025'],
-  ['4', '', '1', 'GL', 'SERV MANTTO PREVENTIVO BOMBA WARMAN 6/4', '', '12500', 'USD', 'RMENDOZA', '15/03/2025'],
-  ['5', 'E-0204', '12', 'UN', 'CABLE NYY 3x16mm2 0.6/1KV', '26002', '3480', 'USD', 'FSORIA', '12/04/2025'],
-]
+// ── MOCK desactivado para pruebas con Excel reales (borrar más adelante) ──────
+// Excels de ejemplo «desordenados» y datos de muestra; el socio prueba cargando
+// sus propios .xlsx. Conservamos los literales comentados como referencia.
+// const DEMO_CLIENTE_A = [
+//   ['ORDEN DE COMPRA — CÍA. MINERA CERRO VERDE', '', '', '', '', '', '', '', '', ''],
+//   ['Generado el 02/06/2025 · Unidad Cerro Verde', '', '', '', '', '', '', '', '', ''],
+//   ['Item', 'Cód. SAP', 'Descripción del Material', 'Cant.', 'U.M.', 'Familia', 'Precio Total', 'Mon.', 'Solicitante', 'Centro'],
+//   ['10', 'M-2341', 'RODAMIENTO SKF 23040 CC/W33 C3', '4', 'UND', '29001', '4,800.00', 'USD', 'JLOPEZ', 'Planta Concentradora'],
+//   ['20', 'X-0001', 'ANFO PESADO 94/6 PARA VOLADURA SUBTERRANEA', '120', 'TM', '11001', '98,400.00', 'USD', 'PGUERRERO', 'Mina'],
+//   ['30', 'S-0234', 'CASCO MINERO 3M H700 BLANCO TIPO I', '50', 'UND', '34005', '1,750.00', 'USD', 'HSALAS', 'Seguridad'],
+//   ['40', 'Q-0045', 'XANTATO ISOPROPILICO AEROPHINE 3418A', '2000', 'KG', '16020', '9,800.00', 'USD', 'PCASAS', 'Procesamiento'],
+//   ['50', 'L-0012', 'GRASA MOLYKOTE BR2 PLUS 180KG', '5', 'BLD', '17001', '2,250.00', 'USD', 'JLOPEZ', 'Planta'],
+// ]
+// const DEMO_CLIENTE_B = [
+//   ['Line', 'Part Number', 'Qty', 'UOM', 'Material Description', 'Commodity Group', 'Net Value', 'Currency', 'Requested By', 'Need Date'],
+//   ['1', 'E-0099', '2', 'EA', 'VARIADOR DE FRECUENCIA ABB ACS880 55KW', '26010', '18600', 'USD', 'FSORIA', '10/03/2025'],
+//   ['2', 'R-0055', '6', 'KIT', 'KIT SELLO MECANICO BOMBA WARMAN 6/4 AH', '15020', '12150', 'PEN', 'JLOPEZ', '25/04/2025'],
+//   ['3', 'C-0078', '30', 'ROL', 'TUBERIA HDPE DN200 PN10 x 6m', '28003', '6750', 'USD', 'MQUISPE', '18/04/2025'],
+//   ['4', '', '1', 'GL', 'SERV MANTTO PREVENTIVO BOMBA WARMAN 6/4', '', '12500', 'USD', 'RMENDOZA', '15/03/2025'],
+//   ['5', 'E-0204', '12', 'UN', 'CABLE NYY 3x16mm2 0.6/1KV', '26002', '3480', 'USD', 'FSORIA', '12/04/2025'],
+// ]
 
 // ── Sample data ───────────────────────────────────────────────────────────────
-const RAW_SAMPLES = [
-  { solped:'10050131', posicion:'10', codigoMaterial:'M-2341',  textoBreve:'RODAMIENTO SKF 23040 CC/W33 C3',                  especificacion:'',                                              cantidad:4,    unidad:'UN',  tipoPos:'L', solicitante:'JLOPEZ',    valorTotal:4800,  moneda:'USD', fechaLiberacion:'01/04/2025', diasDesde:75,  grupoPlanif:'Mantenimiento', areaNecesidad:'Planta Concentradora', grupoArticulos:'29001', grupoCompras:'GC01' },
-  { solped:'10050132', posicion:'10', codigoMaterial:'',        textoBreve:'SERV MANTTO PREVENTIVO BOMBA WARMAN 6/4',          especificacion:'Servicio de mantenimiento preventivo trimestral', cantidad:1,    unidad:'GL',  tipoPos:'F', solicitante:'RMENDOZA', valorTotal:12500, moneda:'USD', fechaLiberacion:'15/03/2025', diasDesde:92,  grupoPlanif:'Servicios',     areaNecesidad:'Mina',                 grupoArticulos:'',      grupoCompras:'GC02' },
-  { solped:'10050133', posicion:'10', codigoMaterial:'Q-0045',  textoBreve:'XANTATO ISOPROPILICO AEROPHINE 3418A',             especificacion:'',                                              cantidad:2000, unidad:'KG',  tipoPos:'L', solicitante:'PCASAS',    valorTotal:9800,  moneda:'USD', fechaLiberacion:'20/04/2025', diasDesde:28,  grupoPlanif:'Reactivos',     areaNecesidad:'Procesamiento Mineral',grupoArticulos:'16020', grupoCompras:'GC03' },
-  { solped:'10050134', posicion:'10', codigoMaterial:'E-0099',  textoBreve:'VARIADOR DE FRECUENCIA ABB ACS880 55KW',           especificacion:'',                                              cantidad:2,    unidad:'UN',  tipoPos:'L', solicitante:'FSORIA',    valorTotal:18600, moneda:'USD', fechaLiberacion:'10/03/2025', diasDesde:97,  grupoPlanif:'Eléctrico',     areaNecesidad:'Infraestructura',       grupoArticulos:'26010', grupoCompras:'GC01' },
-  { solped:'10050135', posicion:'10', codigoMaterial:'L-0012',  textoBreve:'GRASA MOLYKOTE BR2 PLUS 180KG',                   especificacion:'',                                              cantidad:5,    unidad:'BL',  tipoPos:'L', solicitante:'JLOPEZ',    valorTotal:2250,  moneda:'USD', fechaLiberacion:'05/05/2025', diasDesde:12,  grupoPlanif:'Lubricación',   areaNecesidad:'Planta Concentradora', grupoArticulos:'17001', grupoCompras:'GC01' },
-  { solped:'10050136', posicion:'10', codigoMaterial:'S-0234',  textoBreve:'CASCO MINERO 3M H700 BLANCO TIPO I CLASE E',      especificacion:'',                                              cantidad:50,   unidad:'UN',  tipoPos:'L', solicitante:'HSALAS',    valorTotal:1750,  moneda:'USD', fechaLiberacion:'22/04/2025', diasDesde:36,  grupoPlanif:'Seguridad',     areaNecesidad:'Seguridad y Salud',    grupoArticulos:'34005', grupoCompras:'GC04' },
-  { solped:'10050137', posicion:'10', codigoMaterial:'X-0001',  textoBreve:'ANFO PESADO 94/6 PARA VOLADURA SUBTERRANEA',       especificacion:'Suministro de ANFO pesado campaña Q2 2025',     cantidad:120,  unidad:'TM',  tipoPos:'L', solicitante:'PGUERRERO', valorTotal:98400, moneda:'USD', fechaLiberacion:'01/03/2025', diasDesde:106, grupoPlanif:'Explosivos',    areaNecesidad:'Mina',                 grupoArticulos:'11001', grupoCompras:'GC05' },
-  { solped:'10050138', posicion:'10', codigoMaterial:'C-0078',  textoBreve:'TUBERIA HDPE DN200 PN10 x 6m',                    especificacion:'',                                              cantidad:30,   unidad:'TRO', tipoPos:'L', solicitante:'MQUISPE',   valorTotal:6750,  moneda:'USD', fechaLiberacion:'18/04/2025', diasDesde:40,  grupoPlanif:'Construcción',  areaNecesidad:'Infraestructura',       grupoArticulos:'28003', grupoCompras:'GC01' },
-  { solped:'10050139', posicion:'10', codigoMaterial:'R-0055',  textoBreve:'KIT SELLO MECANICO BOMBA WARMAN 6/4 AH',           especificacion:'',                                              cantidad:6,    unidad:'KIT', tipoPos:'L', solicitante:'JLOPEZ',    valorTotal:12150, moneda:'PEN', fechaLiberacion:'25/04/2025', diasDesde:33,  grupoPlanif:'Mantenimiento', areaNecesidad:'Planta Concentradora', grupoArticulos:'15020', grupoCompras:'GC01' },
-  { solped:'10050140', posicion:'10', codigoMaterial:'',        textoBreve:'CALI INSTRUMENTOS DE MEDICION PLANTA PROCESO',     especificacion:'Calibración de instrumentos plan anual 2025',   cantidad:1,    unidad:'SV',  tipoPos:'F', solicitante:'FSORIA',    valorTotal:8200,  moneda:'USD', fechaLiberacion:'12/04/2025', diasDesde:46,  grupoPlanif:'Servicios',     areaNecesidad:'Procesamiento Mineral',grupoArticulos:'',      grupoCompras:'GC02' },
-]
+// const RAW_SAMPLES = [
+//   { solped:'10050131', posicion:'10', codigoMaterial:'M-2341',  textoBreve:'RODAMIENTO SKF 23040 CC/W33 C3',                  especificacion:'',                                              cantidad:4,    unidad:'UN',  tipoPos:'L', solicitante:'JLOPEZ',    valorTotal:4800,  moneda:'USD', fechaLiberacion:'01/04/2025', diasDesde:75,  grupoPlanif:'Mantenimiento', areaNecesidad:'Planta Concentradora', grupoArticulos:'29001', grupoCompras:'GC01' },
+//   { solped:'10050132', posicion:'10', codigoMaterial:'',        textoBreve:'SERV MANTTO PREVENTIVO BOMBA WARMAN 6/4',          especificacion:'Servicio de mantenimiento preventivo trimestral', cantidad:1,    unidad:'GL',  tipoPos:'F', solicitante:'RMENDOZA', valorTotal:12500, moneda:'USD', fechaLiberacion:'15/03/2025', diasDesde:92,  grupoPlanif:'Servicios',     areaNecesidad:'Mina',                 grupoArticulos:'',      grupoCompras:'GC02' },
+//   { solped:'10050133', posicion:'10', codigoMaterial:'Q-0045',  textoBreve:'XANTATO ISOPROPILICO AEROPHINE 3418A',             especificacion:'',                                              cantidad:2000, unidad:'KG',  tipoPos:'L', solicitante:'PCASAS',    valorTotal:9800,  moneda:'USD', fechaLiberacion:'20/04/2025', diasDesde:28,  grupoPlanif:'Reactivos',     areaNecesidad:'Procesamiento Mineral',grupoArticulos:'16020', grupoCompras:'GC03' },
+//   { solped:'10050134', posicion:'10', codigoMaterial:'E-0099',  textoBreve:'VARIADOR DE FRECUENCIA ABB ACS880 55KW',           especificacion:'',                                              cantidad:2,    unidad:'UN',  tipoPos:'L', solicitante:'FSORIA',    valorTotal:18600, moneda:'USD', fechaLiberacion:'10/03/2025', diasDesde:97,  grupoPlanif:'Eléctrico',     areaNecesidad:'Infraestructura',       grupoArticulos:'26010', grupoCompras:'GC01' },
+//   { solped:'10050135', posicion:'10', codigoMaterial:'L-0012',  textoBreve:'GRASA MOLYKOTE BR2 PLUS 180KG',                   especificacion:'',                                              cantidad:5,    unidad:'BL',  tipoPos:'L', solicitante:'JLOPEZ',    valorTotal:2250,  moneda:'USD', fechaLiberacion:'05/05/2025', diasDesde:12,  grupoPlanif:'Lubricación',   areaNecesidad:'Planta Concentradora', grupoArticulos:'17001', grupoCompras:'GC01' },
+//   { solped:'10050136', posicion:'10', codigoMaterial:'S-0234',  textoBreve:'CASCO MINERO 3M H700 BLANCO TIPO I CLASE E',      especificacion:'',                                              cantidad:50,   unidad:'UN',  tipoPos:'L', solicitante:'HSALAS',    valorTotal:1750,  moneda:'USD', fechaLiberacion:'22/04/2025', diasDesde:36,  grupoPlanif:'Seguridad',     areaNecesidad:'Seguridad y Salud',    grupoArticulos:'34005', grupoCompras:'GC04' },
+//   { solped:'10050137', posicion:'10', codigoMaterial:'X-0001',  textoBreve:'ANFO PESADO 94/6 PARA VOLADURA SUBTERRANEA',       especificacion:'Suministro de ANFO pesado campaña Q2 2025',     cantidad:120,  unidad:'TM',  tipoPos:'L', solicitante:'PGUERRERO', valorTotal:98400, moneda:'USD', fechaLiberacion:'01/03/2025', diasDesde:106, grupoPlanif:'Explosivos',    areaNecesidad:'Mina',                 grupoArticulos:'11001', grupoCompras:'GC05' },
+//   { solped:'10050138', posicion:'10', codigoMaterial:'C-0078',  textoBreve:'TUBERIA HDPE DN200 PN10 x 6m',                    especificacion:'',                                              cantidad:30,   unidad:'TRO', tipoPos:'L', solicitante:'MQUISPE',   valorTotal:6750,  moneda:'USD', fechaLiberacion:'18/04/2025', diasDesde:40,  grupoPlanif:'Construcción',  areaNecesidad:'Infraestructura',       grupoArticulos:'28003', grupoCompras:'GC01' },
+//   { solped:'10050139', posicion:'10', codigoMaterial:'R-0055',  textoBreve:'KIT SELLO MECANICO BOMBA WARMAN 6/4 AH',           especificacion:'',                                              cantidad:6,    unidad:'KIT', tipoPos:'L', solicitante:'JLOPEZ',    valorTotal:12150, moneda:'PEN', fechaLiberacion:'25/04/2025', diasDesde:33,  grupoPlanif:'Mantenimiento', areaNecesidad:'Planta Concentradora', grupoArticulos:'15020', grupoCompras:'GC01' },
+//   { solped:'10050140', posicion:'10', codigoMaterial:'',        textoBreve:'CALI INSTRUMENTOS DE MEDICION PLANTA PROCESO',     especificacion:'Calibración de instrumentos plan anual 2025',   cantidad:1,    unidad:'SV',  tipoPos:'F', solicitante:'FSORIA',    valorTotal:8200,  moneda:'USD', fechaLiberacion:'12/04/2025', diasDesde:46,  grupoPlanif:'Servicios',     areaNecesidad:'Procesamiento Mineral',grupoArticulos:'',      grupoCompras:'GC02' },
+// ]
 
-const SAMPLE_ITEMS = RAW_SAMPLES.map(item => ({
-  ...item,
-  id: crypto.randomUUID(),
-  categoriaManual: false,
-  categoria: clasificarItem(item),
-}))
+const SAMPLE_ITEMS = []
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 const TC_PEN_USD  = 3.75
@@ -522,6 +522,7 @@ function UploadZone({ onFile, onDemo, onSample, loading, error }) {
         </div>
       )}
 
+      {/* ── MOCK desactivado para pruebas con Excel reales (borrar más adelante) ──
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, maxWidth: 520, width: '100%' }}>
         <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>Probar con Excels de clientes <b style={{ color: C.text }}>desordenados</b> (distinta cabecera y orden):</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -539,6 +540,7 @@ function UploadZone({ onFile, onDemo, onSample, loading, error }) {
           Cargar datos de ejemplo ya clasificados (10 ítems)
         </button>
       </div>
+      */}
     </div>
   )
 }
