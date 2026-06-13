@@ -325,6 +325,10 @@ const guardarPlantilla = p => {
   const all = cargarPlantillas().filter(x => x.huella !== p.huella)
   try { localStorage.setItem(MAP_KEY, JSON.stringify([p, ...all].slice(0, 50))) } catch { /* almacenamiento no disponible */ }
 }
+const eliminarPlantilla = huella => {
+  const all = cargarPlantillas().filter(x => x.huella !== huella)
+  try { localStorage.setItem(MAP_KEY, JSON.stringify(all)) } catch { /* almacenamiento no disponible */ }
+}
 
 // ── MOCK desactivado para pruebas con Excel reales (borrar más adelante) ──────
 // Excels de ejemplo «desordenados» y datos de muestra; el socio prueba cargando
@@ -444,7 +448,7 @@ function SummaryCard({ nombre, count, valorUSD, active, onClick }) {
 function MapeoModal({ data, isMobile, onConfirm, onCancel }) {
   const { rows, headerIdx, headerRow, fileName } = data
   const [mapping, setMapping] = useState(data.mapping)
-  const [cliente, setCliente] = useState('')
+  const [cliente, setCliente] = useState(data.cliente || '')
   const ejemplo = rows[headerIdx + 1] || []
   const nCols  = headerRow.length
   const nDatos = rows.length - headerIdx - 1
@@ -473,6 +477,11 @@ function MapeoModal({ data, isMobile, onConfirm, onCancel }) {
             <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, marginTop: 3 }}>
               {fileName ? `${fileName} · ` : ''}cabecera detectada en la fila {headerIdx + 1} · {nDatos} fila{nDatos !== 1 ? 's' : ''} de datos
             </div>
+            {data.cliente && (
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.brand, marginTop: 5, background: `${C.brand}10`, border: `1px solid ${C.brand}30`, borderRadius: 6, padding: '5px 9px', display: 'inline-block' }}>
+                Formato reconocido de <b>{data.cliente}</b> — revisa o ajusta el mapeo y guarda para actualizarlo.
+              </div>
+            )}
           </div>
           <button onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} style={{ color: C.muted }} /></button>
         </div>
@@ -698,8 +707,12 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const [saving,      setSaving]      = useState(false)
   const [aviso,       setAviso]       = useState(null) // confirmación efímera (verde)
   const [confirmarEliminar, setConfirmarEliminar] = useState(null) // { id, numero } a borrar
+  const [forzarMapeo, setForzarMapeo] = useState(false)  // mostrar el popup aunque el formato esté guardado
+  const [plantillas,  setPlantillas]  = useState([])     // formatos de columnas recordados
 
   const loaded = items.length > 0
+
+  const refrescarPlantillas = () => setPlantillas(cargarPlantillas())
 
   const flashAviso = msg => { setAviso(msg); setTimeout(() => setAviso(a => a === msg ? null : a), 4000) }
 
@@ -708,6 +721,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     listarDocumentos().then(setDocumentos).catch(e => setError(e.message)).finally(() => setDocsLoading(false))
 
   useEffect(() => { refrescarDocumentos() }, [])
+  useEffect(() => { refrescarPlantillas() }, [])
 
   // Abre el documento solicitado desde el dashboard (enlace del N°DOCSOL).
   useEffect(() => {
@@ -719,7 +733,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const aplicarMapeo = async (rows, headerIdx, mapping, fileName, cliente) => {
     const parsed = construirItems(rows, headerIdx, mapping)
     if (parsed.length === 0) { setError('No se encontraron filas con descripción de material.'); setMapeo(null); return }
-    if (cliente?.trim()) guardarPlantilla({ cliente: cliente.trim(), huella: huellaCabecera(rows[headerIdx]), mapping, fecha: new Date().toISOString().slice(0, 10) })
+    if (cliente?.trim()) { guardarPlantilla({ cliente: cliente.trim(), huella: huellaCabecera(rows[headerIdx]), mapping, fecha: new Date().toISOString().slice(0, 10) }); refrescarPlantillas() }
     setMapeo(null)
     // Herencia por catálogo: si el código ya existe en `materiales`, su categoría
     // (compras reales) prevalece sobre la clasificación por reglas/sinónimos.
@@ -820,8 +834,10 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     const headerIdx = detectarCabecera(rows)
     const headerRow = rows[headerIdx] || []
     const plantilla = cargarPlantillas().find(p => p.huella === huellaCabecera(headerRow))
-    if (plantilla) { aplicarMapeo(rows, headerIdx, plantilla.mapping, fileName, plantilla.cliente); return } // formato conocido ⇒ automático
-    setMapeo({ rows, headerIdx, headerRow, mapping: autoMapear(headerRow), fileName }) // nuevo ⇒ confirmar
+    // Formato conocido ⇒ automático, salvo que el usuario pida revisar el mapeo.
+    if (plantilla && !forzarMapeo) { aplicarMapeo(rows, headerIdx, plantilla.mapping, fileName, plantilla.cliente); return }
+    // Nuevo o forzado ⇒ abrir el popup, precargado con la plantilla si existe.
+    setMapeo({ rows, headerIdx, headerRow, mapping: plantilla?.mapping || autoMapear(headerRow), fileName, cliente: plantilla?.cliente || '' })
   }
 
   const processFile = file => {
@@ -958,6 +974,35 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
       <div style={{ maxWidth: 760, width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'center', marginTop: -8 }}>
         ¿Corregiste un Excel exportado por el ERP? Vuelve a cargarlo aquí y se aplicarán las correcciones automáticamente.
       </div>
+
+      <div style={{ width: '100%', maxWidth: 760, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '12px 16px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text }}>
+          <input type="checkbox" checked={forzarMapeo} onChange={e => setForzarMapeo(e.target.checked)} style={{ accentColor: C.primary, cursor: 'pointer' }} />
+          Configurar columnas manualmente al cargar <span style={{ color: C.muted }}>(no usar el formato guardado)</span>
+        </label>
+        {plantillas.length > 0 && (
+          <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginBottom: 6 }}>
+              Formatos de columnas recordados ({plantillas.length}). Olvídalos para que el próximo Excel con ese formato vuelva a pedir el mapeo.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {plantillas.map(p => (
+                <div key={p.huella} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px' }}>
+                  <div style={{ overflow: 'hidden' }}>
+                    <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.cliente || '(sin nombre)'}</div>
+                    <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted }}>Guardado {p.fecha || ''}</div>
+                  </div>
+                  <button onClick={() => { eliminarPlantilla(p.huella); refrescarPlantillas() }} title="Olvidar este formato"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 7, background: C.card, color: C.danger, border: `1px solid ${C.border}`, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11, flexShrink: 0 }}>
+                    <Trash2 size={12} /> Olvidar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       <DocumentosLista docs={documentos} loading={docsLoading} onOpen={abrirDocumento} onDelete={setConfirmarEliminar} isMobile={isMobile} />
       {modalMapeo}
       {modalConfirmar}
