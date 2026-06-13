@@ -4,6 +4,8 @@ import Solped, { CATEGORIAS_SOLPED } from './Solped.jsx'
 import OrdenCompra from './OrdenCompra.jsx'
 import { PROV_KEY, SAMPLE_PROVEEDORES } from './proveedoresData.js'
 import Login from './Login.jsx'
+import { listarDocumentos } from './solpedRepo.js'
+import { startProductTour } from './tour.js'
 import { supabase } from './supabaseClient.js'
 import {
   BarChart, Bar,
@@ -13,7 +15,7 @@ import {
   LayoutDashboard, Users, ShoppingCart, FileText, Package,
   Bell, Plus, Eye, X, Calendar, CheckCircle, Search,
   ClipboardList, Monitor, Smartphone, MoreHorizontal,
-  ChevronRight, Download, Copy, AlertTriangle, LogOut,
+  ChevronRight, Download, Copy, AlertTriangle, LogOut, HelpCircle,
 } from 'lucide-react'
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
@@ -57,6 +59,13 @@ const alertas = []
 // Datos mock detallados que respaldan cada KPI y cada alerta del dashboard.
 const _PROV = ['Pirotec Andina S.A.', 'Chemindus Perú S.A.', 'Maquinex del Perú S.A.', 'GasAndes S.A.C.', 'SegurPro Perú S.A.', 'Rodacol S.A.C.', 'Metalmaq Industrial S.R.L.', 'Neumatex Andina S.A.', 'Lubriandes S.A.', 'GasIndus S.A.C.', 'Laborindus S.A.C.', 'Segurindus Perú S.A.C.']
 const _CAT  = ['Explosivos', 'Reactivos', 'Repuestos OEM', 'Combustibles', 'EPP', 'Repuestos', 'Maquinaria', 'Gases', 'Lubricantes', 'Insumos', 'Servicios', 'Eléctrico / E&I']
+// Fecha de carga de un Documento Solped (timestamptz ISO) → "07 jun 2025".
+const fmtFechaCargaDash = iso => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return isNaN(d) ? '—' : d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
 const _BASE = new Date(2025, 5, 7) // 07/06/2025 — fecha de referencia del demo
 const _fecha = (offset) => {
   const d = new Date(_BASE); d.setDate(d.getDate() + offset)
@@ -300,7 +309,7 @@ function BottomNav({ active, onNav }) {
         {NAV_PRIMARY.map(({ id, label, icon: Icon }) => {
           const on = active === id
           return (
-            <button key={id} onClick={() => onNav(id)}
+            <button key={id} data-tour={`nav-${id}`} onClick={() => onNav(id)}
               style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, background: 'none', border: 'none', cursor: 'pointer', color: on ? C.primary : C.muted, borderTop: `2px solid ${on ? C.primary : 'transparent'}` }}>
               <Icon size={18} />
               <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 9, fontWeight: on ? 600 : 400 }}>{label}</span>
@@ -334,7 +343,7 @@ function Sidebar({ active, onNav }) {
         {NAV.map(({ id, label, icon: Icon }) => {
           const on = active === id
           return (
-            <button key={id} onClick={() => onNav(id)}
+            <button key={id} data-tour={`nav-${id}`} onClick={() => onNav(id)}
               style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 18px', height: 44, width: '100%', background: on ? '#E8F2FF' : 'transparent', color: on ? C.primary : C.text, borderLeft: `3px solid ${on ? C.primary : 'transparent'}`, fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: on ? 600 : 400, cursor: 'pointer', border: 'none', borderLeft: `3px solid ${on ? C.primary : 'transparent'}`, textAlign: 'left' }}>
               <Icon size={16} style={{ flexShrink: 0, opacity: on ? 1 : 0.65 }} />{label}
             </button>
@@ -356,7 +365,7 @@ function Sidebar({ active, onNav }) {
 }
 
 // ─── TOPBAR (Fiori Shell Bar) ─────────────────────────────────────────────────
-function Topbar({ title, isMobile, viewMode, onToggleViewMode, onSignOut }) {
+function Topbar({ title, isMobile, viewMode, onToggleViewMode, onSignOut, onHelp }) {
   return (
     <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: isMobile ? '0 14px' : '0 20px', height: isMobile ? 50 : 48, background: C.shell, flexShrink: 0, boxShadow: '0 2px 6px rgba(0,0,0,0.18)' }}>
       {isMobile ? (
@@ -372,6 +381,10 @@ function Topbar({ title, isMobile, viewMode, onToggleViewMode, onSignOut }) {
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10 }}>
+        <button data-tour="help-btn" onClick={onHelp} title="Tutorial guiado"
+          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 4, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11 }}>
+          <HelpCircle size={14} />{!isMobile && <span>Tutorial</span>}
+        </button>
         <button onClick={onToggleViewMode} title={viewMode === 'desktop' ? 'Cambiar a vista móvil' : 'Cambiar a vista escritorio'}
           style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 4, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11 }}>
           {viewMode === 'desktop' ? <Smartphone size={13} /> : <Monitor size={13} />}
@@ -404,24 +417,20 @@ const otifColor = (v) => v >= 95 ? C.success : v >= 85 ? C.warn : C.danger
 // Cada detalle: columnas (key/label/align/render/exportFmt) + acciones por fila.
 const DETAILS = {
   'solpeds-pendientes': {
-    file: 'solpeds-pendientes',
-    title: 'SOLPEDs pendientes de procesar',
-    subtitle: '12 solicitudes sin OC asignada — 3 con prioridad alta',
-    rows: solpedsPendientes,
+    file: 'documentos-solped',
+    title: 'Documentos Solped procesados',
+    subtitle: 'Excels de SOLPED cargados y su estado previo a la orden de compra',
+    rows: solpedsPendientes,   // inyectado en runtime desde Supabase (ver Dashboard)
     columns: [
-      { key: 'id',          label: 'SOLPED',     render: r => <span style={{ color: C.primary, fontWeight: 600 }}>{r.id}</span> },
-      { key: 'solicitante', label: 'Solicitante' },
-      { key: 'area',        label: 'Área' },
-      { key: 'categoria',   label: 'Categoría' },
-      { key: 'fecha',       label: 'F. Solicitud' },
-      { key: 'prioridad',   label: 'Prioridad',  render: r => <Chip label={r.prioridad} color={PRIO_COLOR[r.prioridad]} /> },
-      { key: 'monto',       label: 'Monto est.', align: 'right', render: r => fmt(r.monto), exportFmt: r => r.monto },
+      { key: 'numero',          label: 'N° SOLPED',  render: r => <span style={{ color: C.primary, fontWeight: 600 }}>{r.numero}</span> },
+      { key: 'cliente',         label: 'Cliente' },
+      { key: 'archivo',         label: 'Archivo' },
+      { key: 'fechaCarga',      label: 'Cargado',    render: r => fmtFechaCargaDash(r.fechaCarga), exportFmt: r => r.fechaCarga },
+      { key: 'totalPosiciones', label: 'Posiciones', align: 'right' },
+      { key: 'pctClasificado',  label: '% Clasif.',  align: 'right', render: r => <span style={{ color: r.sinClasificar ? C.warn : C.success, fontWeight: 600 }}>{r.pctClasificado}%</span>, exportFmt: r => `${r.pctClasificado}%` },
+      { key: 'estado',          label: 'Estado',     render: r => <Badge>{r.estado}</Badge> },
     ],
-    actions: [
-      { label: 'Procesar',          color: C.primary },
-      { label: 'Asignar comprador', color: C.muted   },
-      { label: 'Rechazar',          color: C.danger  },
-    ],
+    actions: [],
   },
   'ocs-activas': {
     file: 'ocs-activas',
@@ -662,11 +671,11 @@ function DetailDialog({ detail, isMobile, onClose }) {
 }
 
 // ─── Clickable KPI card & Alert row ───────────────────────────────────────────
-function KpiCard({ k, isMobile, onClick }) {
+function KpiCard({ k, isMobile, onClick, dataTour }) {
   const [hover, setHover] = useState(false)
   const Icon = k.icon
   return (
-    <Card className="p-4" onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+    <Card className="p-4" data-tour={dataTour} onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{ cursor: 'pointer', transition: 'box-shadow .15s, transform .15s', boxShadow: hover ? '0 4px 14px rgba(0,0,0,0.12)' : '0 1px 4px rgba(0,0,0,0.06)', transform: hover ? 'translateY(-2px)' : 'none', borderColor: hover ? `${k.color}55` : C.border }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <span style={{ fontFamily: 'Inter, sans-serif', fontSize: isMobile ? 9 : 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>{k.label}</span>
@@ -710,10 +719,13 @@ function Dashboard({ isMobile }) {
   const gap = isMobile ? 12 : 16
 
   const [detailId, setDetailId] = useState(null)
+  const [documentos, setDocumentos] = useState([])   // Documentos Solped persistidos
+
+  useEffect(() => { listarDocumentos().then(setDocumentos).catch(() => {}) }, [])
 
   // Valores en 0 / vacío hasta conectar el Dashboard a datos reales.
   const kpis = [
-    { label: 'SOLPEDs pendientes',  value: String(solpedsPendientes.length), sub: 'sin procesar',      icon: ClipboardList, color: C.warn,    detail: 'solpeds-pendientes' },
+    { label: 'Documentos Solped',   value: String(documentos.length),        sub: 'cargados / sin OC', icon: ClipboardList, color: C.warn,    detail: 'solpeds-pendientes' },
     { label: 'OCs activas',         value: String(ocsActivas.length),        sub: 'con proveedores',   icon: ShoppingCart,  color: C.primary, detail: 'ocs-activas'        },
     { label: 'Entregas esta semana',value: String(entregasSemana.length),    sub: 'próximos 7 días',   icon: Calendar,      color: C.info,    detail: 'entregas-semana'    },
     { label: 'OCs retrasadas',      value: String(ocsRetrasadas.length),     sub: 'requieren acción',  icon: Package,       color: C.danger,  detail: 'ocs-retrasadas'     },
@@ -732,7 +744,7 @@ function Dashboard({ isMobile }) {
       {/* ── KPI cards ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: isMobile ? 10 : 14, ...(!isMobile && { gridTemplateColumns: 'repeat(4, 1fr)' }) }}>
         {kpis.map(k => (
-          <KpiCard key={k.label} k={k} isMobile={isMobile} onClick={() => setDetailId(k.detail)} />
+          <KpiCard key={k.label} k={k} isMobile={isMobile} dataTour={k.detail === 'solpeds-pendientes' ? 'kpi-docs' : undefined} onClick={() => setDetailId(k.detail)} />
         ))}
       </div>
 
@@ -858,7 +870,11 @@ function Dashboard({ isMobile }) {
         </Card>
       </div>
 
-      <DetailDialog detail={detailId ? DETAILS[detailId] : null} isMobile={isMobile} onClose={() => setDetailId(null)} />
+      <DetailDialog
+        detail={detailId
+          ? (detailId === 'solpeds-pendientes' ? { ...DETAILS[detailId], rows: documentos } : DETAILS[detailId])
+          : null}
+        isMobile={isMobile} onClose={() => setDetailId(null)} />
     </div>
   )
 }
@@ -1551,7 +1567,7 @@ export default function App() {
     <div style={{ display: 'flex', height: '100dvh', overflow: 'hidden', background: C.bg, fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif' }}>
       {!isMobile && <Sidebar active={view} onNav={setView} />}
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0 }}>
-        <Topbar title={title} isMobile={isMobile} viewMode={viewMode} onToggleViewMode={toggleViewMode} onSignOut={signOut} />
+        <Topbar title={title} isMobile={isMobile} viewMode={viewMode} onToggleViewMode={toggleViewMode} onSignOut={signOut} onHelp={() => startProductTour(setView)} />
         <div className="print-content" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <View isMobile={isMobile} />
         </div>

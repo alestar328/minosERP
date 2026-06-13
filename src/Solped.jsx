@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, X, ArrowRight, Table, LayoutGrid } from 'lucide-react'
+import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2 } from 'lucide-react'
 import SolpedAgrupado from './SolpedAgrupado.jsx'
+import { listarDocumentos, cargarDocumento, guardarDocumento, actualizarCategoriaItem, categoriaPorCodigo, solpedIdDeItem } from './solpedRepo.js'
+import { exportarDocumentoExcel, esExcelERP, leerCorrecciones } from './solpedExcel.js'
 
 const C = {
   bg: '#F5F6F7', card: '#FFFFFF', shell: '#354A5E',
@@ -74,15 +76,50 @@ export const CATEGORIAS_SOLPED = [
   { nombre: 'No categoria', bg: '#ECECEC', fg: '#8A8D90', reglas: [] },
 ]
 
+// Sinónimos de la celda «Grupo / Familia» → categoría del ERP. Cuando el cliente
+// escribe TEXTO en esa columna (no un código numérico), intentamos calzarlo con
+// las categorías guardadas. Las claves son nombres EXACTOS de CATEGORIAS_SOLPED.
+const SINONIMOS_GRUPO = {
+  'Servicios':       ['servicio', 'servicios', 'mantenimiento', 'contrata', 'contratista'],
+  'Repuestos':       ['repuesto', 'repuestos', 'spare', 'spares', 'rodamiento', 'sello mecanico', 'componente mecanico'],
+  'EPP':             ['epp', 'ppe', 'proteccion personal', 'implemento de seguridad', 'seguridad industrial'],
+  'Eléctrico / E&I': ['electrico', 'electrica', 'e i', 'instrumentacion', 'instrumento', 'electronica', 'automatizacion'],
+  'Reactivos':       ['reactivo', 'reactivos', 'quimico', 'quimicos', 'insumo quimico', 'reagente', 'reagent'],
+  'Lubricantes':     ['lubricante', 'lubricantes', 'lubricacion', 'grasa', 'aceite', 'lubricant'],
+  'Explosivos':      ['explosivo', 'explosivos', 'voladura', 'blasting'],
+  'Construcción':    ['construccion', 'obra civil', 'civil', 'estructura', 'tuberia'],
+  'Otros':           ['varios', 'miscelaneo', 'miscelaneos'],
+}
+
+// Mapea el texto de la celda Grupo/Familia a una categoría por nombre o sinónimo.
+// Devuelve null si la celda está vacía o es puramente numérica (la resuelven las
+// reglas de prefijo) o si no calza con ninguna categoría.
+function categoriaPorGrupoTexto(grupo) {
+  const g = norm(grupo)
+  if (!g || /^[0-9]+$/.test(g)) return null
+  for (const cat of CATEGORIAS_SOLPED) {
+    if (norm(cat.nombre) === g) return cat.nombre          // nombre de categoría exacto
+  }
+  for (const [nombre, alias] of Object.entries(SINONIMOS_GRUPO)) {
+    if (alias.some(a => g.includes(norm(a)))) return nombre  // sinónimo contenido
+  }
+  return null
+}
+
 /**
  * Classifies a SOLPED item into a category.
  * Pure function — applies rules in declaration order; first match wins.
- * Falls back to "No categoria" (sin clasificar) if no rule matches.
+ * (1) Si la celda Grupo/Familia trae texto, intenta calzarla con las categorías
+ *     guardadas del ERP por nombre/sinónimos. (2) Reglas deterministas (prefijo
+ *     numérico de grupo + texto de descripción). Fallback "No categoria".
  */
 export function clasificarItem(item, categorias = CATEGORIAS_SOLPED) {
   const textoBreve = (item.textoBreve || '').toUpperCase()
   const grupo      = (item.grupoArticulos || '').toString()
   const tipoPos    = (item.tipoPos || '').toString()
+
+  const porGrupo = categoriaPorGrupoTexto(grupo)
+  if (porGrupo) return porGrupo
 
   for (const cat of categorias) {
     if (cat.reglas.length === 0) continue
@@ -268,6 +305,19 @@ function construirItems(rows, headerIdx, mapping) {
 
 // «Huella» del formato = cabeceras normalizadas y ordenadas. Reconoce al cliente.
 const huellaCabecera = headerRow => headerRow.map(norm).filter(Boolean).sort().join('|')
+
+// Número del Documento Solped: el N° de SOLPED más frecuente entre sus filas
+// (un documento = una solped). Si las filas no lo traen, usa el nombre del archivo.
+function numeroSolpedDe(items, fileName) {
+  const freq = new Map()
+  for (const it of items) {
+    const n = (it.solped || '').trim()
+    if (n && n !== '—') freq.set(n, (freq.get(n) || 0) + 1)
+  }
+  let best = null, bestC = 0
+  for (const [n, c] of freq) if (c > bestC) { best = n; bestC = c }
+  return best || (fileName || 'SOLPED').replace(/\.[^.]+$/, '').slice(0, 60)
+}
 
 const MAP_KEY = 'minprocure_solped_plantillas'
 const cargarPlantillas = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY)) || [] } catch { return [] } }
@@ -478,7 +528,7 @@ function UploadZone({ onFile, onDemo, onSample, loading, error }) {
   }
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 48, gap: 20 }}>
+    <div data-tour="solped-upload" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 48, gap: 20 }}>
       <div
         onDragOver={e => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
@@ -545,6 +595,87 @@ function UploadZone({ onFile, onDemo, onSample, loading, error }) {
   )
 }
 
+// ── Lista de Documentos Solped ya cargados ────────────────────────────────────
+const ESTADO_DOC = {
+  'Pendiente':  { bg: '#E78C0722', fg: '#9A5B02' },
+  'En proceso': { bg: '#0070F222', fg: '#0854A0' },
+  'Procesada':  { bg: '#188F3A22', fg: '#0F6E2C' },
+  'Rechazada':  { bg: '#BB000022', fg: '#8A0000' },
+}
+const fmtFechaCarga = iso => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return isNaN(d) ? '—' : d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+// Fecha ISO 'yyyy-mm-dd' → 'dd/mm/yy' (subtítulo compacto de la última compra).
+const isoCorta = iso => {
+  if (!iso) return ''
+  const [y, m, d] = String(iso).slice(0, 10).split('-')
+  return d && m && y ? `${d}/${m}/${y.slice(2)}` : ''
+}
+
+function DocumentosLista({ docs, loading, onOpen, isMobile }) {
+  if (loading) return (
+    <div style={{ width: '100%', maxWidth: 760, fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, textAlign: 'center' }}>
+      Cargando documentos…
+    </div>
+  )
+  if (!docs.length) return null
+  return (
+    <div data-tour="solped-docs" style={{ width: '100%', maxWidth: 760, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ padding: '12px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <FileSpreadsheet size={16} style={{ color: C.brand }} />
+        <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: C.text }}>Documentos Solped cargados</span>
+        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>({docs.length})</span>
+      </div>
+      <div style={{ maxHeight: 320, overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: C.bg, color: C.muted, textAlign: 'left' }}>
+              <th style={{ padding: '8px 14px', fontWeight: 600, fontSize: 11 }}>N° SOLPED</th>
+              {!isMobile && <th style={{ padding: '8px 14px', fontWeight: 600, fontSize: 11 }}>Cliente</th>}
+              {!isMobile && <th style={{ padding: '8px 14px', fontWeight: 600, fontSize: 11 }}>Cargado</th>}
+              <th style={{ padding: '8px 14px', fontWeight: 600, fontSize: 11, textAlign: 'center' }}>Posic.</th>
+              <th style={{ padding: '8px 14px', fontWeight: 600, fontSize: 11, textAlign: 'center' }}>Clasific.</th>
+              <th style={{ padding: '8px 14px', fontWeight: 600, fontSize: 11 }}>Estado</th>
+              <th style={{ padding: '8px 14px' }} />
+            </tr>
+          </thead>
+          <tbody>
+            {docs.map(d => {
+              const est = ESTADO_DOC[d.estado] || { bg: C.border, fg: C.muted }
+              return (
+                <tr key={d.id} style={{ borderTop: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '9px 14px', fontWeight: 600, color: C.text }}>
+                    {d.numero}
+                    {d.archivo && <div style={{ fontSize: 10, color: C.muted, fontWeight: 400 }}>{d.archivo}</div>}
+                  </td>
+                  {!isMobile && <td style={{ padding: '9px 14px', color: C.text }}>{d.cliente}</td>}
+                  {!isMobile && <td style={{ padding: '9px 14px', color: C.muted }}>{fmtFechaCarga(d.fechaCarga)}</td>}
+                  <td style={{ padding: '9px 14px', textAlign: 'center', color: C.text }}>{d.totalPosiciones}</td>
+                  <td style={{ padding: '9px 14px', textAlign: 'center', color: d.sinClasificar ? C.warn : C.success, fontWeight: 600 }}>
+                    {d.pctClasificado}%
+                    {d.sinClasificar > 0 && <div style={{ fontSize: 10, color: C.warn, fontWeight: 400 }}>{d.sinClasificar} sin clasif.</div>}
+                  </td>
+                  <td style={{ padding: '9px 14px' }}>
+                    <span style={{ padding: '2px 9px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: est.bg, color: est.fg }}>{d.estado}</span>
+                  </td>
+                  <td style={{ padding: '9px 14px', textAlign: 'right' }}>
+                    <button onClick={() => onOpen(d.id)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 7, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: C.primary, color: '#fff', border: 'none', cursor: 'pointer' }}>
+                      Abrir <ArrowRight size={12} />
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ── Main SOLPED component ─────────────────────────────────────────────────────
 export default function Solped({ isMobile = false }) {
   const [items,     setItems]     = useState([])
@@ -557,25 +688,107 @@ export default function Solped({ isMobile = false }) {
   const [selected,  setSelected]  = useState(new Set())
   const [mapeo,     setMapeo]     = useState(null)   // confirmación de mapeo pendiente
   const [vista,     setVista]     = useState('tabla') // 'tabla' | 'agrupado'
+  const [documentos,  setDocumentos]  = useState([])   // Documentos Solped persistidos
+  const [docsLoading, setDocsLoading] = useState(true)
+  const [docActivo,   setDocActivo]   = useState(null) // id de la solped abierta
+  const [saving,      setSaving]      = useState(false)
+  const [aviso,       setAviso]       = useState(null) // confirmación efímera (verde)
 
   const loaded = items.length > 0
 
-  // Aplica un mapeo (auto o confirmado) y carga los items.
-  const aplicarMapeo = (rows, headerIdx, mapping, fileName, cliente) => {
+  const flashAviso = msg => { setAviso(msg); setTimeout(() => setAviso(a => a === msg ? null : a), 4000) }
+
+  // Refresca la lista de Documentos Solped desde Supabase.
+  const refrescarDocumentos = () =>
+    listarDocumentos().then(setDocumentos).catch(e => setError(e.message)).finally(() => setDocsLoading(false))
+
+  useEffect(() => { refrescarDocumentos() }, [])
+
+  // Aplica un mapeo (auto o confirmado), persiste el documento y lo abre.
+  const aplicarMapeo = async (rows, headerIdx, mapping, fileName, cliente) => {
     const parsed = construirItems(rows, headerIdx, mapping)
     if (parsed.length === 0) { setError('No se encontraron filas con descripción de material.'); setMapeo(null); return }
     if (cliente?.trim()) guardarPlantilla({ cliente: cliente.trim(), huella: huellaCabecera(rows[headerIdx]), mapping, fecha: new Date().toISOString().slice(0, 10) })
-    setItems(parsed); setFilename(fileName); setError(null)
-    setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch(''); setMapeo(null)
+    setMapeo(null)
+    // Herencia por catálogo: si el código ya existe en `materiales`, su categoría
+    // (compras reales) prevalece sobre la clasificación por reglas/sinónimos.
+    try {
+      const catMap = await categoriaPorCodigo(parsed.map(p => p.codigoMaterial))
+      for (const it of parsed) {
+        const known = catMap.get((it.codigoMaterial || '').trim())
+        if (known) it.categoria = known
+      }
+    } catch { /* catálogo no disponible: seguimos con la clasificación por reglas */ }
+    const numero      = numeroSolpedDe(parsed, fileName)
+    const solicitante = parsed.find(p => p.solicitante)?.solicitante || ''
+    setSaving(true); setError(null)
+    try {
+      const id  = await guardarDocumento({ cliente: cliente || '', numero, archivo: fileName, solicitante, items: parsed })
+      const doc = await cargarDocumento(id)   // recarga con ids reales de BD + reconciliación aplicada
+      setItems(doc.items); setFilename(fileName); setDocActivo(id)
+      setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
+      refrescarDocumentos()
+    } catch (e) {
+      setError('No se pudo guardar el documento: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Abre un Documento Solped ya persistido.
+  const abrirDocumento = async id => {
+    setSaving(true); setError(null)
+    try {
+      const doc = await cargarDocumento(id)
+      setItems(doc.items); setFilename(doc.archivo || doc.numero); setDocActivo(id)
+      setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
+    } catch (e) {
+      setError('No se pudo abrir el documento: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Importa un Excel generado por el ERP: aplica las correcciones de categoría.
+  const importarCorrecciones = async rows => {
+    const correcciones = leerCorrecciones(rows, CATEGORIAS_SOLPED.map(c => c.nombre))
+    if (!correcciones.length) {
+      setError('El Excel del ERP no traía correcciones válidas en la columna "Categoría corregida".')
+      return
+    }
+    setSaving(true); setError(null)
+    try {
+      for (const { id, categoria } of correcciones) await actualizarCategoriaItem(id, categoria)
+      const targetId = docActivo || await solpedIdDeItem(correcciones[0].id)
+      if (targetId) {
+        const doc = await cargarDocumento(targetId)
+        setItems(doc.items); setFilename(doc.archivo || doc.numero); setDocActivo(targetId)
+        setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
+      }
+      refrescarDocumentos()
+      flashAviso(`${correcciones.length} corrección${correcciones.length !== 1 ? 'es' : ''} aplicada${correcciones.length !== 1 ? 's' : ''} desde el Excel.`)
+    } catch (e) {
+      setError('No se pudieron aplicar las correcciones: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Exporta el documento abierto a Excel (procesado, con columna para corregir).
+  const exportarExcel = () => {
+    const meta = documentos.find(d => d.id === docActivo)
+    exportarDocumentoExcel({ numero: meta?.numero || items[0]?.solped || filename, archivo: filename, items })
+    flashAviso('Excel generado. Corrige la columna "Categoría corregida" y vuelve a cargarlo aquí.')
   }
 
   // Punto de entrada común: filas crudas → detecta cabecera → plantilla o modal.
   const ingestarRows = (rows, fileName) => {
     if (!rows || rows.length < 2) { setError('El archivo no tiene filas suficientes.'); return }
+    if (esExcelERP(rows)) { importarCorrecciones(rows); return }  // round-trip: Excel del ERP
     const headerIdx = detectarCabecera(rows)
     const headerRow = rows[headerIdx] || []
     const plantilla = cargarPlantillas().find(p => p.huella === huellaCabecera(headerRow))
-    if (plantilla) { aplicarMapeo(rows, headerIdx, plantilla.mapping, fileName, null); return } // formato conocido ⇒ automático
+    if (plantilla) { aplicarMapeo(rows, headerIdx, plantilla.mapping, fileName, plantilla.cliente); return } // formato conocido ⇒ automático
     setMapeo({ rows, headerIdx, headerRow, mapping: autoMapear(headerRow), fileName }) // nuevo ⇒ confirmar
   }
 
@@ -609,12 +822,16 @@ export default function Solped({ isMobile = false }) {
   }
 
   const reset = () => {
-    setItems([]); setFilename(null); setError(null); setMapeo(null)
+    setItems([]); setFilename(null); setError(null); setMapeo(null); setDocActivo(null)
     setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
+    refrescarDocumentos()
   }
 
-  const editCategoria = (id, newCat) =>
+  const editCategoria = (id, newCat) => {
     setItems(prev => prev.map(it => it.id === id ? { ...it, categoria: newCat, categoriaManual: true } : it))
+    // Persistir la corrección si el item viene de BD (documento abierto/guardado).
+    if (docActivo) actualizarCategoriaItem(id, newCat).then(refrescarDocumentos).catch(e => setError(e.message))
+  }
 
   // ── Filtering ─────────────────────────────────────────────────────────────
   const filtrada = items.filter(it => {
@@ -664,16 +881,34 @@ export default function Solped({ isMobile = false }) {
       onConfirm={(mapping, cliente) => aplicarMapeo(mapeo.rows, mapeo.headerIdx, mapping, mapeo.fileName, cliente)} />
   )
 
+  const avisoBanner = aviso && (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 8, background: `${C.success}15`, border: `1px solid ${C.success}40`, maxWidth: 760, width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.success }}>
+      <CheckCircle2 size={15} style={{ flexShrink: 0 }} /> {aviso}
+    </div>
+  )
+
   if (!loaded) return (
-    <>
-      <UploadZone onFile={processFile} onDemo={ingestarRows} onSample={loadSample} loading={loading} error={error} />
+    <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '32px 24px' }}>
+      <UploadZone onFile={processFile} onDemo={ingestarRows} onSample={loadSample} loading={loading || saving}
+        error={saving ? null : error} />
+      {saving && (
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.primary, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Procesando…
+        </div>
+      )}
+      {avisoBanner}
+      <div style={{ maxWidth: 760, width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'center', marginTop: -8 }}>
+        ¿Corregiste un Excel exportado por el ERP? Vuelve a cargarlo aquí y se aplicarán las correcciones automáticamente.
+      </div>
+      <DocumentosLista docs={documentos} loading={docsLoading} onOpen={abrirDocumento} isMobile={isMobile} />
       {modalMapeo}
-    </>
+    </div>
   )
 
   return (
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg }}>
       {modalMapeo}
+      {aviso && <div style={{ padding: isMobile ? '8px 14px 0' : '8px 24px 0' }}>{avisoBanner}</div>}
 
       {/* ── Summary cards ────────────────────────────────────────────────── */}
       <div style={{ padding: isMobile ? '10px 14px' : '10px 24px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 8, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center', paddingBottom: isMobile ? 10 : undefined }}>
@@ -733,6 +968,10 @@ export default function Solped({ isMobile = false }) {
                 )
               })}
             </div>
+            <button onClick={exportarExcel} title="Genera el Excel procesado con una columna para corregir categorías"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.brand, border: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <Download size={11} /> {isMobile ? '' : 'Exportar Excel'}
+            </button>
             <button onClick={reset}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
               <Upload size={11} /> Cargar otro
@@ -789,7 +1028,8 @@ export default function Solped({ isMobile = false }) {
               <col style={{ width: 118 }} />
               <col style={{ width: 90  }} />
               <col style={{ width: 108 }} />
-              <col style={{ width: 155 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 150 }} />
             </colgroup>
           )}
           <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: C.card, boxShadow: `0 1px 0 ${C.border}` }}>
@@ -811,12 +1051,13 @@ export default function Solped({ isMobile = false }) {
               <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Urgencia</th>
               {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Solicitante</th>}
               {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Área</th>}
+              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }} title="Último proveedor al que se compró este material (lo calcula el ERP por código)">Prov. últ. pedido</th>}
             </tr>
           </thead>
           <tbody>
             {filtrada.length === 0 ? (
               <tr>
-                <td colSpan={isMobile ? 5 : 9} style={{ padding: 48, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
+                <td colSpan={isMobile ? 5 : 10} style={{ padding: 48, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
                   Sin resultados para los filtros aplicados.
                 </td>
               </tr>
@@ -881,8 +1122,21 @@ export default function Solped({ isMobile = false }) {
                 )}
 
                 {!isMobile && (
-                  <td style={{ padding: '7px 0 7px 0', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }} title={it.areaNecesidad}>
+                  <td style={{ padding: '7px 8px 7px 0', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }} title={it.areaNecesidad}>
                     {it.areaNecesidad || '—'}
+                  </td>
+                )}
+
+                {!isMobile && (
+                  <td style={{ padding: '7px 0 7px 0', overflow: 'hidden', whiteSpace: 'nowrap' }} title={it.proveedorUltimo || (it.codigoMaterial ? 'Sin compras previas de este material' : 'Sin código de material')}>
+                    {it.proveedorUltimo ? (
+                      <>
+                        <div style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.proveedorUltimo}</div>
+                        {it.proveedorUltimoFecha && <div style={{ fontSize: 10, color: C.muted }}>{isoCorta(it.proveedorUltimoFecha)}</div>}
+                      </>
+                    ) : (
+                      <span style={{ color: C.muted }}>—</span>
+                    )}
                   </td>
                 )}
               </tr>
