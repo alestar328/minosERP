@@ -629,7 +629,13 @@ function DocumentosLista({ docs, loading, onOpen, onDelete, isMobile }) {
       Cargando documentos…
     </div>
   )
-  if (!docs.length) return null
+  if (!docs.length) return (
+    <div data-tour="solped-docs" style={{ width: '100%', maxWidth: 760, background: C.card, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '22px 18px', textAlign: 'center' }}>
+      <FileSpreadsheet size={22} style={{ color: C.muted, opacity: 0.6 }} />
+      <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13, color: C.text, marginTop: 6 }}>Aún no hay Documentos Solped</div>
+      <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginTop: 2 }}>Carga un Excel arriba y aparecerá aquí para abrirlo, revisarlo o exportarlo.</div>
+    </div>
+  )
   return (
     <div data-tour="solped-docs" style={{ width: '100%', maxWidth: 760, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
       <div style={{ padding: '12px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -709,6 +715,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const [confirmarEliminar, setConfirmarEliminar] = useState(null) // { id, numero } a borrar
   const [forzarMapeo, setForzarMapeo] = useState(false)  // mostrar el popup aunque el formato esté guardado
   const [plantillas,  setPlantillas]  = useState([])     // formatos de columnas recordados
+  const [verConfig,   setVerConfig]   = useState(false)  // modal de config. de columnas del documento abierto
 
   const loaded = items.length > 0
 
@@ -733,7 +740,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const aplicarMapeo = async (rows, headerIdx, mapping, fileName, cliente) => {
     const parsed = construirItems(rows, headerIdx, mapping)
     if (parsed.length === 0) { setError('No se encontraron filas con descripción de material.'); setMapeo(null); return }
-    if (cliente?.trim()) { guardarPlantilla({ cliente: cliente.trim(), huella: huellaCabecera(rows[headerIdx]), mapping, fecha: new Date().toISOString().slice(0, 10) }); refrescarPlantillas() }
+    if (cliente?.trim()) { guardarPlantilla({ cliente: cliente.trim(), huella: huellaCabecera(rows[headerIdx]), mapping, headers: rows[headerIdx], fecha: new Date().toISOString().slice(0, 10) }); refrescarPlantillas() }
     setMapeo(null)
     // Herencia por catálogo: si el código ya existe en `materiales`, su categoría
     // (compras reales) prevalece sobre la clasificación por reglas/sinónimos.
@@ -961,6 +968,57 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     </div>
   )
 
+  const clienteActivo  = documentos.find(d => d.id === docActivo)?.cliente || ''
+  const formatosCliente = plantillas.filter(p => (p.cliente || '').trim().toLowerCase() === clienteActivo.trim().toLowerCase() && clienteActivo)
+
+  const modalConfig = verConfig && (
+    <div onClick={() => setVerConfig(false)}
+      style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(50,54,58,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, width: 'min(540px, 94vw)', maxHeight: '88vh', overflow: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.22)' }}>
+        <div style={{ padding: '18px 22px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 16, color: C.text }}>Configuración de columnas</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, marginTop: 3 }}>Cliente: <b style={{ color: C.text }}>{clienteActivo || '—'}</b></div>
+          </div>
+          <button onClick={() => setVerConfig(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} style={{ color: C.muted }} /></button>
+        </div>
+        <div style={{ padding: '14px 22px 20px' }}>
+          {formatosCliente.length === 0 ? (
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+              No hay un formato de columnas guardado para este cliente. Se guardará la próxima vez que cargues un Excel suyo y confirmes el mapeo con su nombre.
+            </div>
+          ) : formatosCliente.map(p => (
+            <div key={p.huella} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>Guardado {p.fecha || ''}</div>
+                <button onClick={() => { eliminarPlantilla(p.huella); refrescarPlantillas() }} title="Olvidar este formato"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 7, background: C.card, color: C.danger, border: `1px solid ${C.border}`, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11 }}>
+                  <Trash2 size={12} /> Olvidar formato
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {CAMPOS.filter(c => p.mapping?.[c.campo] !== undefined).map(c => {
+                  const idx = p.mapping[c.campo]
+                  const header = (p.headers?.[idx] ?? '').toString().trim()
+                  return (
+                    <div key={c.campo} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontFamily: 'Inter, sans-serif', fontSize: 12, borderBottom: `1px solid ${C.border}40`, padding: '3px 0' }}>
+                      <span style={{ color: C.muted }}>{c.label}{c.obligatorio ? ' *' : ''}</span>
+                      <span style={{ color: C.text, fontWeight: 600, textAlign: 'right' }}>{header || `Columna ${idx + 1}`}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+            Para reconfigurar: marca «Configurar columnas manualmente» en la pantalla de carga y vuelve a subir el Excel de este cliente.
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
   if (!loaded) return (
     <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '32px 24px' }}>
       <UploadZone onFile={processFile} onDemo={ingestarRows} onSample={loadSample} loading={loading || saving}
@@ -970,40 +1028,18 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
           <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Procesando…
         </div>
       )}
+      <label style={{ width: '100%', maxWidth: 760, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, marginTop: -8 }}>
+        <input type="checkbox" checked={forzarMapeo} onChange={e => setForzarMapeo(e.target.checked)} style={{ accentColor: C.primary, cursor: 'pointer' }} />
+        Configurar columnas manualmente al cargar <span style={{ color: C.muted }}>(no usar el formato guardado del cliente)</span>
+      </label>
       {avisoBanner}
-      <div style={{ maxWidth: 760, width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'center', marginTop: -8 }}>
+
+      {/* Tabla principal: Documentos Solped guardados */}
+      <DocumentosLista docs={documentos} loading={docsLoading} onOpen={abrirDocumento} onDelete={setConfirmarEliminar} isMobile={isMobile} />
+
+      <div style={{ maxWidth: 760, width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'center' }}>
         ¿Corregiste un Excel exportado por el ERP? Vuelve a cargarlo aquí y se aplicarán las correcciones automáticamente.
       </div>
-
-      <div style={{ width: '100%', maxWidth: 760, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '12px 16px' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text }}>
-          <input type="checkbox" checked={forzarMapeo} onChange={e => setForzarMapeo(e.target.checked)} style={{ accentColor: C.primary, cursor: 'pointer' }} />
-          Configurar columnas manualmente al cargar <span style={{ color: C.muted }}>(no usar el formato guardado)</span>
-        </label>
-        {plantillas.length > 0 && (
-          <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginBottom: 6 }}>
-              Formatos de columnas recordados ({plantillas.length}). Olvídalos para que el próximo Excel con ese formato vuelva a pedir el mapeo.
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {plantillas.map(p => (
-                <div key={p.huella} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px' }}>
-                  <div style={{ overflow: 'hidden' }}>
-                    <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.cliente || '(sin nombre)'}</div>
-                    <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted }}>Guardado {p.fecha || ''}</div>
-                  </div>
-                  <button onClick={() => { eliminarPlantilla(p.huella); refrescarPlantillas() }} title="Olvidar este formato"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 7, background: C.card, color: C.danger, border: `1px solid ${C.border}`, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11, flexShrink: 0 }}>
-                    <Trash2 size={12} /> Olvidar
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <DocumentosLista docs={documentos} loading={docsLoading} onOpen={abrirDocumento} onDelete={setConfirmarEliminar} isMobile={isMobile} />
       {modalMapeo}
       {modalConfirmar}
     </div>
@@ -1013,6 +1049,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg }}>
       {modalMapeo}
       {modalConfirmar}
+      {modalConfig}
       {aviso && <div style={{ padding: isMobile ? '8px 14px 0' : '8px 24px 0' }}>{avisoBanner}</div>}
 
       {/* ── Summary cards ────────────────────────────────────────────────── */}
@@ -1073,6 +1110,10 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
                 )
               })}
             </div>
+            <button onClick={() => setVerConfig(true)} title="Ver la configuración de columnas de este cliente"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <Table size={11} /> {isMobile ? '' : 'Columnas'}
+            </button>
             <button onClick={exportarExcel} title="Genera el Excel procesado con una columna para corregir categorías"
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.brand, border: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <Download size={11} /> {isMobile ? '' : 'Exportar Excel'}
