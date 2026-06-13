@@ -677,7 +677,7 @@ function DocumentosLista({ docs, loading, onOpen, isMobile }) {
 }
 
 // ── Main SOLPED component ─────────────────────────────────────────────────────
-export default function Solped({ isMobile = false }) {
+export default function Solped({ isMobile = false, focusDocId = null }) {
   const [items,     setItems]     = useState([])
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState(null)
@@ -703,6 +703,12 @@ export default function Solped({ isMobile = false }) {
     listarDocumentos().then(setDocumentos).catch(e => setError(e.message)).finally(() => setDocsLoading(false))
 
   useEffect(() => { refrescarDocumentos() }, [])
+
+  // Abre el documento solicitado desde el dashboard (enlace del N°DOCSOL).
+  useEffect(() => {
+    if (focusDocId?.id) abrirDocumento(focusDocId.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusDocId?.n])
 
   // Aplica un mapeo (auto o confirmado), persiste el documento y lo abre.
   const aplicarMapeo = async (rows, headerIdx, mapping, fileName, cliente) => {

@@ -422,7 +422,7 @@ const DETAILS = {
     subtitle: 'Excels de SOLPED cargados y su estado previo a la orden de compra',
     rows: solpedsPendientes,   // inyectado en runtime desde Supabase (ver Dashboard)
     columns: [
-      { key: 'numero',          label: 'N° SOLPED',  render: r => <span style={{ color: C.primary, fontWeight: 600 }}>{r.numero}</span> },
+      { key: 'numero',          label: 'N°DOCSOL',   render: r => <span style={{ color: C.primary, fontWeight: 600 }}>{r.numero}</span> },
       { key: 'cliente',         label: 'Cliente' },
       { key: 'archivo',         label: 'Archivo' },
       { key: 'fechaCarga',      label: 'Cargado',    render: r => fmtFechaCargaDash(r.fechaCarga), exportFmt: r => r.fechaCarga },
@@ -714,7 +714,7 @@ function AlertRow({ a, isLast, onClick }) {
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({ isMobile }) {
+function Dashboard({ isMobile, onOpenDocumento }) {
   const P   = isMobile ? '14px 14px' : 24
   const gap = isMobile ? 12 : 16
 
@@ -872,7 +872,23 @@ function Dashboard({ isMobile }) {
 
       <DetailDialog
         detail={detailId
-          ? (detailId === 'solpeds-pendientes' ? { ...DETAILS[detailId], rows: documentos } : DETAILS[detailId])
+          ? (detailId === 'solpeds-pendientes'
+              ? {
+                  ...DETAILS[detailId],
+                  rows: documentos,
+                  // El N°DOCSOL es un enlace que abre el documento en la vista SOLPED.
+                  columns: DETAILS[detailId].columns.map(c => c.key !== 'numero' ? c : {
+                    ...c,
+                    render: r => (
+                      <span onClick={() => { setDetailId(null); onOpenDocumento?.(r.id) }}
+                        style={{ color: C.primary, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                        title="Abrir este Documento Solped">
+                        {r.numero}
+                      </span>
+                    ),
+                  }),
+                }
+              : DETAILS[detailId])
           : null}
         isMobile={isMobile} onClose={() => setDetailId(null)} />
     </div>
@@ -1527,7 +1543,13 @@ const VIEWS = {
 // ─── APP ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const [view, setView] = useState('dashboard')
+  const [solpedFocus, setSolpedFocus] = useState(null) // { id, n } → documento a abrir en SOLPED
   const [session, setSession] = useState(undefined)   // undefined = cargando, null = sin sesión
+
+  // Navega a la vista SOLPED y abre un documento concreto (desde el dashboard).
+  const openDocumento = docId => { setSolpedFocus({ id: docId, n: Date.now() }); setView('solped') }
+  // Navegación por el menú: limpia el foco para no reabrir el último documento.
+  const navTo = v => { setSolpedFocus(null); setView(v) }
   const [viewMode, setViewMode] = useState(() => {
     try { const s = localStorage.getItem('mp_viewmode'); if (s) return s } catch {}
     return window.innerWidth < 900 ? 'mobile' : 'desktop'
@@ -1565,13 +1587,14 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100dvh', overflow: 'hidden', background: C.bg, fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif' }}>
-      {!isMobile && <Sidebar active={view} onNav={setView} />}
+      {!isMobile && <Sidebar active={view} onNav={navTo} />}
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0 }}>
-        <Topbar title={title} isMobile={isMobile} viewMode={viewMode} onToggleViewMode={toggleViewMode} onSignOut={signOut} onHelp={() => startProductTour(setView)} />
+        <Topbar title={title} isMobile={isMobile} viewMode={viewMode} onToggleViewMode={toggleViewMode} onSignOut={signOut} onHelp={() => startProductTour(navTo)} />
         <div className="print-content" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <View isMobile={isMobile} />
+          <View isMobile={isMobile} onOpenDocumento={openDocumento}
+            focusDocId={view === 'solped' ? solpedFocus : null} />
         </div>
-        {isMobile && <BottomNav active={view} onNav={setView} />}
+        {isMobile && <BottomNav active={view} onNav={navTo} />}
       </div>
     </div>
   )
