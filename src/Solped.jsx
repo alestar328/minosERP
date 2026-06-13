@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, ChevronLeft, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2, Trash2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, ChevronRight, ChevronLeft, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2, Trash2 } from 'lucide-react'
 import SolpedAgrupado from './SolpedAgrupado.jsx'
 import { listarDocumentos, cargarDocumento, guardarDocumento, actualizarCategoriaItem, categoriaPorCodigo, solpedIdDeItem, eliminarDocumento } from './solpedRepo.js'
 import { exportarDocumentoExcel, esExcelERP, leerCorrecciones } from './solpedExcel.js'
@@ -562,6 +562,54 @@ function DocumentosLista({ docs, loading, onOpen, onDelete, isMobile }) {
         <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: C.text }}>Documentos Solped cargados</span>
         <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>({docs.length})</span>
       </div>
+      {isMobile ? (
+        <div style={{ maxHeight: 420, overflow: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {docs.map(d => {
+            const est = ESTADO_DOC[d.estado] || { bg: C.border, fg: C.muted }
+            const Campo = ({ label, value, color }) => (
+              <div>
+                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: color || C.text, marginTop: 2 }}>{value}</div>
+              </div>
+            )
+            return (
+              <div key={d.id} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.card, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {/* Cabecera: N° SOLPED + estado */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>N° SOLPED</div>
+                    <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: C.text, marginTop: 1 }}>{d.numero}</div>
+                    {d.archivo && <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.archivo}</div>}
+                  </div>
+                  <span style={{ padding: '3px 10px', borderRadius: 10, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: est.bg, color: est.fg, whiteSpace: 'nowrap', flexShrink: 0 }}>{d.estado}</span>
+                </div>
+
+                {/* Datos con labels internas */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                  <Campo label="Cliente" value={d.cliente || '—'} />
+                  <Campo label="Cargado" value={fmtFechaCarga(d.fechaCarga)} color={C.muted} />
+                  <Campo label="Posiciones" value={d.totalPosiciones} />
+                  <Campo label="Clasificación"
+                    value={d.sinClasificar > 0 ? `${d.pctClasificado}% · ${d.sinClasificar} sin clasif.` : `${d.pctClasificado}%`}
+                    color={d.sinClasificar ? C.warn : C.success} />
+                </div>
+
+                {/* Acciones */}
+                <div style={{ display: 'flex', gap: 8, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                  <button onClick={() => onDelete(d)} title="Eliminar documento"
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, background: C.card, color: C.danger, border: `1px solid ${C.border}`, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600 }}>
+                    <Trash2 size={14} /> Eliminar
+                  </button>
+                  <button onClick={() => onOpen(d.id)}
+                    style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: '#fff', border: 'none', cursor: 'pointer' }}>
+                    Abrir <ArrowRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
       <div style={{ maxHeight: 320, overflow: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12 }}>
           <thead>
@@ -610,6 +658,7 @@ function DocumentosLista({ docs, loading, onOpen, onDelete, isMobile }) {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   )
 }
@@ -635,6 +684,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const [forzarMapeo, setForzarMapeo] = useState(false)  // mostrar el popup aunque el formato esté guardado
   const [plantillas,  setPlantillas]  = useState([])     // formatos de columnas recordados
   const [verConfig,   setVerConfig]   = useState(false)  // modal de config. de columnas del documento abierto
+  const [filtrosOpen, setFiltrosOpen] = useState(false)  // móvil: panel «Filtros y resumen» plegable
 
   const loaded = items.length > 0
   const fileInputRef = useRef(null)
@@ -1002,6 +1052,8 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
 
       {aviso && <div style={{ padding: isMobile ? '8px 14px 0' : '8px 24px 0' }}>{avisoBanner}</div>}
 
+      {/* ── Summary cards + controles (escritorio) ───────────────────────── */}
+      {!isMobile && (<>
       {/* ── Summary cards ────────────────────────────────────────────────── */}
       <div style={{ padding: isMobile ? '10px 14px' : '10px 24px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 8, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center', paddingBottom: isMobile ? 10 : undefined }}>
         {summary.map(s => (
@@ -1096,15 +1148,104 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
           )}
         </div>
       </div>
+      </>)}
 
+      {/* ── Panel «Filtros y resumen» plegable (móvil) ───────────────────── */}
       {isMobile && (
-        <div style={{ padding: '4px 14px 8px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 6, overflowX: 'auto' }}>
-          {[['todos','Todos'],['urgente','⚡ >60d'],['atencion','⚠ 31–60d'],['normal','✓ ≤30d']].map(([val,lbl]) => (
-            <button key={val} onClick={() => setFiltroUrg(val)}
-              style={{ padding: '4px 10px', borderRadius: 6, fontFamily: 'Inter, sans-serif', fontSize: 11, background: filtroUrg === val ? `${C.primary}20` : C.card, color: filtroUrg === val ? C.primary : C.muted, border: `1px solid ${filtroUrg === val ? C.primary : C.border}`, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              {lbl}
-            </button>
-          ))}
+        <div style={{ borderBottom: `1px solid ${C.border}`, background: C.card }}>
+          {/* Barra siempre visible: resumen compacto + toggle de plegado */}
+          <button onClick={() => setFiltrosOpen(o => !o)}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+            {filtrosOpen ? <ChevronDown size={16} style={{ color: C.muted, flexShrink: 0 }} /> : <ChevronRight size={16} style={{ color: C.muted, flexShrink: 0 }} />}
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13, color: C.text, whiteSpace: 'nowrap' }}>Filtros y resumen</span>
+            {hasFilters && <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.primary, flexShrink: 0 }} title="Filtros activos" />}
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+              <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>{filtrada.length}/{items.length} ít.</span>
+              <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 12, color: C.primary, whiteSpace: 'nowrap' }}>US$ {fmtMoney(totalUSD)}</span>
+            </div>
+          </button>
+
+          {filtrosOpen && (
+            <div style={{ padding: '0 14px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* Buscar */}
+              <div style={{ position: 'relative' }}>
+                <Search size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted }} />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar..."
+                  style={{ width: '100%', boxSizing: 'border-box', paddingLeft: 28, paddingRight: 12, paddingTop: 7, paddingBottom: 7, borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: C.bg, border: `1px solid ${C.border}`, color: C.text, outline: 'none' }} />
+              </div>
+
+              {/* Toggle Tabla / Agrupar + acciones (icono) */}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ display: 'flex', borderRadius: 8, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+                  {[['tabla', Table], ['agrupado', LayoutGrid]].map(([val, Icon]) => {
+                    const on = vista === val
+                    return (
+                      <button key={val} onClick={() => setVista(val)} title={val === 'tabla' ? 'Tabla' : 'Agrupar y asignar'}
+                        style={{ display: 'flex', alignItems: 'center', padding: '7px 12px', background: on ? C.primary : C.card, color: on ? '#fff' : C.muted, border: 'none', cursor: 'pointer' }}>
+                        <Icon size={14} />
+                      </button>
+                    )
+                  })}
+                </div>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                  <button onClick={() => setVerConfig(true)} title="Columnas"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '7px 10px', borderRadius: 8, background: C.card, color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                    <Table size={13} />
+                  </button>
+                  <button onClick={exportarExcel} title="Exportar Excel"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '7px 10px', borderRadius: 8, background: C.card, color: C.brand, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                    <Download size={13} />
+                  </button>
+                  <button onClick={() => setConfirmarEliminar({ id: docActivo, numero: documentos.find(d => d.id === docActivo)?.numero || items[0]?.solped })}
+                    title="Eliminar" disabled={!docActivo}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '7px 10px', borderRadius: 8, background: C.card, color: docActivo ? C.danger : C.muted, border: `1px solid ${C.border}`, cursor: docActivo ? 'pointer' : 'not-allowed' }}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+
+              {selected.size > 0 && (
+                <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.primary, fontWeight: 600 }}>
+                  {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
+                </span>
+              )}
+
+              {/* Tarjetas resumen por categoría: omitidas en móvil — duplicaban el
+                 filtrado por categoría que ya hacen los chips de abajo. */}
+
+              {/* Chips de categoría */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginRight: 2 }}>Categoría:</span>
+                {CATEGORIAS_SOLPED.map(cat => {
+                  if (!items.some(it => it.categoria === cat.nombre)) return null
+                  const active = filtroCats.includes(cat.nombre)
+                  return (
+                    <button key={cat.nombre} onClick={() => toggleCatFilter(cat.nombre)}
+                      style={{ padding: '3px 10px', borderRadius: 4, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: active ? 600 : 400, background: active ? cat.bg : `${cat.bg}22`, color: active ? cat.fg : cat.bg, border: `1px solid ${active ? cat.bg : cat.bg + '60'}`, cursor: 'pointer' }}>
+                      {cat.nombre}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Filtros de urgencia */}
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto' }}>
+                {[['todos', 'Todos'], ['urgente', '⚡ >60d'], ['atencion', '⚠ 31–60d'], ['normal', '✓ ≤30d']].map(([val, lbl]) => (
+                  <button key={val} onClick={() => setFiltroUrg(val)}
+                    style={{ padding: '4px 10px', borderRadius: 6, fontFamily: 'Inter, sans-serif', fontSize: 11, background: filtroUrg === val ? `${C.primary}20` : C.card, color: filtroUrg === val ? C.primary : C.muted, border: `1px solid ${filtroUrg === val ? C.primary : C.border}`, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+
+              {hasFilters && (
+                <button onClick={() => { setFiltroCats([]); setFiltroUrg('todos'); setSearch('') }}
+                  style={{ alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 4, fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'transparent', color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                  × Limpiar filtros
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
