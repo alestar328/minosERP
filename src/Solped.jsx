@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2, Trash2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, ChevronLeft, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2, Trash2 } from 'lucide-react'
 import SolpedAgrupado from './SolpedAgrupado.jsx'
 import { listarDocumentos, cargarDocumento, guardarDocumento, actualizarCategoriaItem, categoriaPorCodigo, solpedIdDeItem, eliminarDocumento } from './solpedRepo.js'
 import { exportarDocumentoExcel, esExcelERP, leerCorrecciones } from './solpedExcel.js'
@@ -983,6 +983,23 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
       {modalMapeo}
       {modalConfirmar}
       {modalConfig}
+
+      {/* ── Cabecera de Object Page: botón Atrás + título ─────────────────── */}
+      <div style={{ padding: isMobile ? '8px 14px' : '9px 24px', borderBottom: `1px solid ${C.border}`, background: C.card, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={reset} title="Volver a Documentos Solped"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, background: C.card, color: C.brand, border: `1px solid ${C.border}`, cursor: 'pointer', flexShrink: 0 }}>
+          <ChevronLeft size={18} />
+        </button>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            SOLPED {documentos.find(d => d.id === docActivo)?.numero || items[0]?.solped || ''}
+          </div>
+          <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {[clienteActivo, filename].filter(Boolean).join(' · ') || 'Documento Solped'}
+          </div>
+        </div>
+      </div>
+
       {aviso && <div style={{ padding: isMobile ? '8px 14px 0' : '8px 24px 0' }}>{avisoBanner}</div>}
 
       {/* ── Summary cards ────────────────────────────────────────────────── */}
@@ -1055,10 +1072,6 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
               title="Eliminar este documento" disabled={!docActivo}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: docActivo ? C.danger : C.muted, border: `1px solid ${C.border}`, cursor: docActivo ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}>
               <Trash2 size={11} /> {isMobile ? '' : 'Eliminar'}
-            </button>
-            <button onClick={reset}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
-              <Upload size={11} /> Cargar otro
             </button>
           </div>
         </div>
