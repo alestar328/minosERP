@@ -366,8 +366,6 @@ const eliminarPlantilla = huella => {
 //   { solped:'10050140', posicion:'10', codigoMaterial:'',        textoBreve:'CALI INSTRUMENTOS DE MEDICION PLANTA PROCESO',     especificacion:'Calibración de instrumentos plan anual 2025',   cantidad:1,    unidad:'SV',  tipoPos:'F', solicitante:'FSORIA',    valorTotal:8200,  moneda:'USD', fechaLiberacion:'12/04/2025', diasDesde:46,  grupoPlanif:'Servicios',     areaNecesidad:'Procesamiento Mineral',grupoArticulos:'',      grupoCompras:'GC02' },
 // ]
 
-const SAMPLE_ITEMS = []
-
 // ── Utilities ─────────────────────────────────────────────────────────────────
 const TC_PEN_USD  = 3.75
 const toUSD       = (val, mon) => mon === 'PEN' ? val / TC_PEN_USD : val
@@ -525,85 +523,6 @@ function MapeoModal({ data, isMobile, onConfirm, onCancel }) {
   )
 }
 
-// ── Upload screen ─────────────────────────────────────────────────────────────
-function UploadZone({ onFile, onDemo, onSample, loading, error }) {
-  const [dragging, setDragging] = useState(false)
-  const inputRef = useRef(null)
-
-  const handleDrop = e => {
-    e.preventDefault(); setDragging(false)
-    const file = e.dataTransfer.files[0]
-    if (file) onFile(file)
-  }
-
-  return (
-    <div data-tour="solped-upload" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 48, gap: 20 }}>
-      <div
-        onDragOver={e => { e.preventDefault(); setDragging(true) }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={handleDrop}
-        onClick={() => !loading && inputRef.current?.click()}
-        style={{ width: '100%', maxWidth: 520, padding: '48px 40px', borderRadius: 16, border: `2px dashed ${dragging ? C.primary : C.border}`, background: dragging ? `${C.primary}08` : C.card, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, cursor: loading ? 'default' : 'pointer', transition: 'all 0.15s' }}>
-        <input ref={inputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
-          onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = '' }} />
-
-        {loading
-          ? <RefreshCw size={44} style={{ color: C.primary, animation: 'spin 1s linear infinite' }} />
-          : <FileSpreadsheet size={44} style={{ color: dragging ? C.primary : C.muted }} />
-        }
-
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 17, color: C.text, marginBottom: 8 }}>
-            {loading ? 'Procesando archivo...' : dragging ? 'Suelta para cargar' : 'Arrastra el Excel SOLPED aquí'}
-          </div>
-          <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, lineHeight: 1.7 }}>
-            Cualquier formato de cliente — detectamos las columnas solas<br />
-            Formato <b style={{ color: C.text }}>.xlsx</b> o <b style={{ color: C.text }}>.xls</b>
-          </div>
-        </div>
-
-        {!loading && (
-          <button onClick={e => { e.stopPropagation(); inputRef.current?.click() }}
-            style={{ padding: '9px 28px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer' }}>
-            Seleccionar Archivo
-          </button>
-        )}
-      </div>
-
-      {error && (
-        <div style={{ display: 'flex', gap: 12, padding: '14px 20px', borderRadius: 10, background: `${C.danger}15`, border: `1px solid ${C.danger}40`, maxWidth: 520, width: '100%' }}>
-          <AlertCircle size={16} style={{ color: C.danger, flexShrink: 0, marginTop: 2 }} />
-          <div>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: C.danger, marginBottom: 4 }}>Error al procesar el archivo</div>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>{error}</div>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginTop: 6 }}>Verifica que el archivo tenga una fila de cabecera y al menos una fila de datos.</div>
-          </div>
-        </div>
-      )}
-
-      {/* ── MOCK desactivado para pruebas con Excel reales (borrar más adelante) ──
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, maxWidth: 520, width: '100%' }}>
-        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>Probar con Excels de clientes <b style={{ color: C.text }}>desordenados</b> (distinta cabecera y orden):</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <button onClick={() => onDemo(DEMO_CLIENTE_A, 'OC_CerroVerde.xlsx')}
-            style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, background: C.card, border: `1px solid ${C.border}`, padding: '7px 16px', borderRadius: 8, cursor: 'pointer' }}>
-            Cliente A — cabeceras en español + filas de título
-          </button>
-          <button onClick={() => onDemo(DEMO_CLIENTE_B, 'PO_Southern.xlsx')}
-            style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, background: C.card, border: `1px solid ${C.border}`, padding: '7px 16px', borderRadius: 8, cursor: 'pointer' }}>
-            Cliente B — cabeceras en inglés + otro orden
-          </button>
-        </div>
-        <button onClick={onSample}
-          style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.primary, background: 'transparent', border: `1px solid ${C.primary}40`, padding: '7px 18px', borderRadius: 8, cursor: 'pointer', marginTop: 2 }}>
-          Cargar datos de ejemplo ya clasificados (10 ítems)
-        </button>
-      </div>
-      */}
-    </div>
-  )
-}
-
 // ── Lista de Documentos Solped ya cargados ────────────────────────────────────
 const ESTADO_DOC = {
   'Pendiente':  { bg: '#E78C0722', fg: '#9A5B02' },
@@ -625,19 +544,19 @@ const isoCorta = iso => {
 
 function DocumentosLista({ docs, loading, onOpen, onDelete, isMobile }) {
   if (loading) return (
-    <div style={{ width: '100%', maxWidth: 760, fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, textAlign: 'center' }}>
+    <div style={{ width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, textAlign: 'center' }}>
       Cargando documentos…
     </div>
   )
   if (!docs.length) return (
-    <div data-tour="solped-docs" style={{ width: '100%', maxWidth: 760, background: C.card, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '22px 18px', textAlign: 'center' }}>
+    <div data-tour="solped-docs" style={{ width: '100%', background: C.card, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '32px 18px', textAlign: 'center' }}>
       <FileSpreadsheet size={22} style={{ color: C.muted, opacity: 0.6 }} />
       <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13, color: C.text, marginTop: 6 }}>Aún no hay Documentos Solped</div>
       <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginTop: 2 }}>Carga un Excel arriba y aparecerá aquí para abrirlo, revisarlo o exportarlo.</div>
     </div>
   )
   return (
-    <div data-tour="solped-docs" style={{ width: '100%', maxWidth: 760, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
+    <div data-tour="solped-docs" style={{ width: '100%', background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
       <div style={{ padding: '12px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
         <FileSpreadsheet size={16} style={{ color: C.brand }} />
         <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: C.text }}>Documentos Solped cargados</span>
@@ -718,6 +637,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const [verConfig,   setVerConfig]   = useState(false)  // modal de config. de columnas del documento abierto
 
   const loaded = items.length > 0
+  const fileInputRef = useRef(null)
 
   const refrescarPlantillas = () => setPlantillas(cargarPlantillas())
 
@@ -866,16 +786,6 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     reader.readAsArrayBuffer(file)
   }
 
-  const loadSample = () => {
-    setItems(SAMPLE_ITEMS)
-    setFilename('ejemplo_solped.xlsx')
-    setError(null)
-    setSelected(new Set())
-    setFiltroCats([])
-    setFiltroUrg('todos')
-    setSearch('')
-  }
-
   const reset = () => {
     setItems([]); setFilename(null); setError(null); setMapeo(null); setDocActivo(null)
     setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
@@ -1020,28 +930,51 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   )
 
   if (!loaded) return (
-    <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '32px 24px' }}>
-      <UploadZone onFile={processFile} onDemo={ingestarRows} onSample={loadSample} loading={loading || saving}
-        error={saving ? null : error} />
-      {saving && (
-        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.primary, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Procesando…
-        </div>
-      )}
-      <label style={{ width: '100%', maxWidth: 760, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, marginTop: -8 }}>
-        <input type="checkbox" checked={forzarMapeo} onChange={e => setForzarMapeo(e.target.checked)} style={{ accentColor: C.primary, cursor: 'pointer' }} />
-        Configurar columnas manualmente al cargar <span style={{ color: C.muted }}>(no usar el formato guardado del cliente)</span>
-      </label>
-      {avisoBanner}
-
-      {/* Tabla principal: Documentos Solped guardados */}
-      <DocumentosLista docs={documentos} loading={docsLoading} onOpen={abrirDocumento} onDelete={setConfirmarEliminar} isMobile={isMobile} />
-
-      <div style={{ maxWidth: 760, width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'center' }}>
-        ¿Corregiste un Excel exportado por el ERP? Vuelve a cargarlo aquí y se aplicarán las correcciones automáticamente.
-      </div>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: C.bg, overflow: 'hidden' }}>
       {modalMapeo}
       {modalConfirmar}
+
+      {/* ── Toolbar (SAP list report) ─────────────────────────────────────── */}
+      <div style={{ padding: isMobile ? '8px 14px' : '10px 24px', borderBottom: `1px solid ${C.border}`, background: C.card, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: C.text }}>
+          Documentos Solped
+          <span style={{ fontWeight: 400, fontSize: 12, color: C.muted, marginLeft: 8 }}>{documentos.length}</span>
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 16, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.text, whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={forzarMapeo} onChange={e => setForzarMapeo(e.target.checked)} style={{ accentColor: C.primary, cursor: 'pointer' }} />
+            Configurar columnas manualmente
+          </label>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
+            onChange={e => { if (e.target.files?.[0]) processFile(e.target.files[0]); e.target.value = '' }} />
+          <button data-tour="solped-upload" onClick={() => fileInputRef.current?.click()} disabled={loading || saving}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: '#fff', border: 'none', cursor: (loading || saving) ? 'default' : 'pointer', opacity: (loading || saving) ? 0.7 : 1, whiteSpace: 'nowrap' }}>
+            {(loading || saving)
+              ? <><RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> Procesando…</>
+              : <><Upload size={13} /> Subir Excel</>}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Banner de error ───────────────────────────────────────────────── */}
+      {error && !saving && (
+        <div style={{ margin: isMobile ? '10px 14px 0' : '12px 24px 0', display: 'flex', gap: 10, padding: '10px 14px', borderRadius: 8, background: `${C.danger}12`, border: `1px solid ${C.danger}40` }}>
+          <AlertCircle size={15} style={{ color: C.danger, flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text }}>{error}</div>
+        </div>
+      )}
+
+      {/* ── Contenido: tabla de documentos (también acepta arrastrar y soltar) ─ */}
+      <div
+        onDragOver={e => e.preventDefault()}
+        onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) processFile(f) }}
+        style={{ flex: 1, overflow: 'auto', padding: isMobile ? '12px 14px' : '16px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {avisoBanner}
+        <DocumentosLista docs={documentos} loading={docsLoading} onOpen={abrirDocumento} onDelete={setConfirmarEliminar} isMobile={isMobile} />
+        <div style={{ width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'center' }}>
+          Arrastra un Excel aquí o usa «Subir Excel». ¿Corregiste un Excel exportado por el ERP? Vuelve a cargarlo y se aplicarán las correcciones.
+        </div>
+      </div>
     </div>
   )
 
