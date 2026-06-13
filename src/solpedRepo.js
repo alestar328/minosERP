@@ -253,6 +253,14 @@ export async function guardarDocumento({ cliente, numero, archivo, solicitante, 
   return solpedId
 }
 
+// ── Eliminar un Documento Solped (borra la cabecera; los items cascadean) ───────
+// FK: solped_items.solped_id ON DELETE CASCADE; ordenes_compra.solped_id y
+// oc_items.solped_item_id usan ON DELETE SET NULL, así que no bloquean.
+export async function eliminarDocumento(solpedId) {
+  const { error } = await supabase.from('solpeds').delete().eq('id', solpedId)
+  if (error) throw error
+}
+
 // ── Resolver el documento (solped) al que pertenece un item ─────────────────────
 export async function solpedIdDeItem(itemId) {
   const { data, error } = await supabase

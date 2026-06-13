@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2, Trash2 } from 'lucide-react'
 import SolpedAgrupado from './SolpedAgrupado.jsx'
-import { listarDocumentos, cargarDocumento, guardarDocumento, actualizarCategoriaItem, categoriaPorCodigo, solpedIdDeItem } from './solpedRepo.js'
+import { listarDocumentos, cargarDocumento, guardarDocumento, actualizarCategoriaItem, categoriaPorCodigo, solpedIdDeItem, eliminarDocumento } from './solpedRepo.js'
 import { exportarDocumentoExcel, esExcelERP, leerCorrecciones } from './solpedExcel.js'
 
 const C = {
@@ -614,7 +614,7 @@ const isoCorta = iso => {
   return d && m && y ? `${d}/${m}/${y.slice(2)}` : ''
 }
 
-function DocumentosLista({ docs, loading, onOpen, isMobile }) {
+function DocumentosLista({ docs, loading, onOpen, onDelete, isMobile }) {
   if (loading) return (
     <div style={{ width: '100%', maxWidth: 760, fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, textAlign: 'center' }}>
       Cargando documentos…
@@ -660,7 +660,11 @@ function DocumentosLista({ docs, loading, onOpen, isMobile }) {
                   <td style={{ padding: '9px 14px' }}>
                     <span style={{ padding: '2px 9px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: est.bg, color: est.fg }}>{d.estado}</span>
                   </td>
-                  <td style={{ padding: '9px 14px', textAlign: 'right' }}>
+                  <td style={{ padding: '9px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button onClick={() => onDelete(d)} title="Eliminar documento"
+                      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '5px 8px', borderRadius: 7, background: C.card, color: C.danger, border: `1px solid ${C.border}`, cursor: 'pointer', marginRight: 6 }}>
+                      <Trash2 size={13} />
+                    </button>
                     <button onClick={() => onOpen(d.id)}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 7, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: C.primary, color: '#fff', border: 'none', cursor: 'pointer' }}>
                       Abrir <ArrowRight size={12} />
@@ -693,6 +697,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const [docActivo,   setDocActivo]   = useState(null) // id de la solped abierta
   const [saving,      setSaving]      = useState(false)
   const [aviso,       setAviso]       = useState(null) // confirmación efímera (verde)
+  const [confirmarEliminar, setConfirmarEliminar] = useState(null) // { id, numero } a borrar
 
   const loaded = items.length > 0
 
@@ -775,6 +780,27 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
       flashAviso(`${correcciones.length} corrección${correcciones.length !== 1 ? 'es' : ''} aplicada${correcciones.length !== 1 ? 's' : ''} desde el Excel.`)
     } catch (e) {
       setError('No se pudieron aplicar las correcciones: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Elimina definitivamente el Documento Solped (tras confirmación).
+  const ejecutarEliminar = async () => {
+    const doc = confirmarEliminar
+    if (!doc) return
+    setConfirmarEliminar(null)
+    setSaving(true); setError(null)
+    try {
+      await eliminarDocumento(doc.id)
+      if (docActivo === doc.id) {   // estaba abierto → volver a la lista
+        setItems([]); setFilename(null); setDocActivo(null)
+        setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
+      }
+      refrescarDocumentos()
+      flashAviso(`Documento ${doc.numero || ''} eliminado.`)
+    } catch (e) {
+      setError('No se pudo eliminar el documento: ' + e.message)
     } finally {
       setSaving(false)
     }
@@ -893,6 +919,32 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     </div>
   )
 
+  const modalConfirmar = confirmarEliminar && (
+    <div onClick={() => setConfirmarEliminar(null)}
+      style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(50,54,58,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, width: 'min(420px, 94vw)', boxShadow: '0 12px 40px rgba(0,0,0,0.22)', padding: 22 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div style={{ width: 36, height: 36, borderRadius: '50%', background: `${C.danger}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Trash2 size={18} style={{ color: C.danger }} />
+          </div>
+          <div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: C.text }}>Eliminar Documento Solped</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+              Se eliminará <b style={{ color: C.text }}>{confirmarEliminar.numero || 'el documento'}</b> y todas sus posiciones. Esta acción no se puede deshacer.
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+          <button onClick={() => setConfirmarEliminar(null)}
+            style={{ padding: '8px 16px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: C.card, color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={ejecutarEliminar}
+            style={{ padding: '8px 16px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.danger, color: '#fff', border: 'none', cursor: 'pointer' }}>Eliminar</button>
+        </div>
+      </div>
+    </div>
+  )
+
   if (!loaded) return (
     <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '32px 24px' }}>
       <UploadZone onFile={processFile} onDemo={ingestarRows} onSample={loadSample} loading={loading || saving}
@@ -906,14 +958,16 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
       <div style={{ maxWidth: 760, width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'center', marginTop: -8 }}>
         ¿Corregiste un Excel exportado por el ERP? Vuelve a cargarlo aquí y se aplicarán las correcciones automáticamente.
       </div>
-      <DocumentosLista docs={documentos} loading={docsLoading} onOpen={abrirDocumento} isMobile={isMobile} />
+      <DocumentosLista docs={documentos} loading={docsLoading} onOpen={abrirDocumento} onDelete={setConfirmarEliminar} isMobile={isMobile} />
       {modalMapeo}
+      {modalConfirmar}
     </div>
   )
 
   return (
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg }}>
       {modalMapeo}
+      {modalConfirmar}
       {aviso && <div style={{ padding: isMobile ? '8px 14px 0' : '8px 24px 0' }}>{avisoBanner}</div>}
 
       {/* ── Summary cards ────────────────────────────────────────────────── */}
@@ -977,6 +1031,11 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
             <button onClick={exportarExcel} title="Genera el Excel procesado con una columna para corregir categorías"
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.brand, border: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <Download size={11} /> {isMobile ? '' : 'Exportar Excel'}
+            </button>
+            <button onClick={() => setConfirmarEliminar({ id: docActivo, numero: documentos.find(d => d.id === docActivo)?.numero || items[0]?.solped })}
+              title="Eliminar este documento" disabled={!docActivo}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: docActivo ? C.danger : C.muted, border: `1px solid ${C.border}`, cursor: docActivo ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}>
+              <Trash2 size={11} /> {isMobile ? '' : 'Eliminar'}
             </button>
             <button onClick={reset}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
