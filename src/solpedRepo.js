@@ -58,10 +58,13 @@ const posNum = p => { const n = parseInt(String(p).replace(/\D/g, ''), 10); retu
 function dbItemToUI(i, maps, solped) {
   return {
     id:              i.id,                       // id real de BD (permite persistir ediciones)
-    solped:          solped.numero || '—',
+    solped:          i.numero_solped || solped.numero || '—',  // N° por ítem; cabecera como fallback
     posicion:        i.posicion || '',
     codigoMaterial:  i.codigo_material || '',
     textoBreve:      i.texto_breve || '',
+    textoPedido:     i.texto_pedido || '',
+    fabricante:      i.fabricante || '',
+    modelo:          i.modelo || '',
     especificacion:  i.especificacion || '',
     cantidad:        Number(i.cantidad) || 0,
     unidad:          i.unidad || '',
@@ -83,9 +86,13 @@ function dbItemToUI(i, maps, solped) {
 function uiItemToDb(it, maps, solpedId) {
   return {
     solped_id:        solpedId,
+    numero_solped:    (it.solped && it.solped !== '—') ? it.solped : null,
     posicion:         String(it.posicion ?? ''),
     codigo_material:  it.codigoMaterial || null,
     texto_breve:      it.textoBreve || '(sin descripción)',
+    texto_pedido:     it.textoPedido || null,
+    fabricante:       it.fabricante || null,
+    modelo:           it.modelo || null,
     especificacion:   it.especificacion || null,
     cantidad:         it.cantidad ?? null,
     unidad:           it.unidad || null,

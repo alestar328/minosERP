@@ -146,6 +146,7 @@ export function clasificarItem(item, categorias = CATEGORIAS_SOLPED) {
 // Campos canónicos del sistema. obligatorio ⇒ sin él no se puede importar.
 const CAMPOS = [
   { campo: 'textoBreve',      label: 'Descripción del material', obligatorio: true  },
+  { campo: 'textoPedido',     label: 'Texto pedido de compra',   obligatorio: false },
   { campo: 'grupoArticulos',  label: 'Grupo / familia',          obligatorio: false },
   { campo: 'codigoMaterial',  label: 'Código de material',       obligatorio: false },
   { campo: 'cantidad',        label: 'Cantidad',                 obligatorio: false },
@@ -162,6 +163,7 @@ const CAMPOS = [
 // Sinónimos de cabecera por campo (ya normalizados: minúsculas, sin tildes).
 const ALIAS = {
   textoBreve:      ['descripcion', 'descripcion del material', 'texto breve', 'detalle', 'denominacion', 'material', 'glosa', 'item descripcion', 'description', 'material description', 'desc'],
+  textoPedido:     ['texto pedido de compra en material', 'texto pedido de compra', 'texto de pedido de compra', 'texto pedido compra', 'texto pedido', 'po material text', 'purchase order material text', 'caracteristicas del material', 'especificacion tecnica', 'especificacion del material'],
   grupoArticulos:  ['grupo articulos', 'grupo de articulos', 'familia', 'grupo', 'rubro', 'clase', 'commodity group', 'commodity', 'material group', 'grupo material', 'linea'],
   codigoMaterial:  ['codigo', 'codigo material', 'cod material', 'cod sap', 'codigo sap', 'sku', 'nro parte', 'numero de parte', 'part number', 'material code', 'codigo de material'],
   cantidad:        ['cantidad', 'cant', 'qty', 'quantity', 'volumen', 'cantidad solicitada'],
@@ -269,6 +271,46 @@ function diasDesdeFecha(str) {
   return diff > 0 ? diff : 0
 }
 
+// ── Tokenización fabricante / modelo ──────────────────────────────────────────
+// El cliente describe el material en una sola celda con pares «ETIQUETA: valor»,
+// p.ej.: "FABRICANTE: ENVERTEC NUMERO DE PARTE: 3105 ESTANDAR: ... MATERIAL: ...".
+// Extraemos FABRICANTE y MODELO (o N° de parte) recortando el valor de cada
+// etiqueta hasta la siguiente etiqueta conocida o un ';'. 100% determinista; más
+// adelante, con catálogo de proveedores/fabricantes, esto se resolverá automático.
+const LABELS_PEDIDO = [
+  'FABRICANTE', 'MARCA',
+  'MODELO',
+  'NUMERO DE PARTE', 'NÚMERO DE PARTE', 'NRO DE PARTE', 'N° DE PARTE', 'NUMERO PARTE', 'PART NUMBER', 'P/N',
+  'ESTANDAR', 'ESTÁNDAR', 'NORMA',
+  'MATERIAL', 'DIMENSIONES', 'LONGITUD', 'ALTURA', 'DIAMETRO', 'DIÁMETRO', 'PESO', 'COLOR', 'CAPACIDAD',
+  'ROSCAS DE SUJECCION', 'ROSCAS',
+  'TENSION NOMINAL', 'TENSIÓN NOMINAL', 'TENSION MAXIMA', 'TENSIÓN MÁXIMA', 'TENSION', 'TENSIÓN',
+  'UTILIZACION', 'UTILIZACIÓN', 'USO',
+]
+const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const STOP_PEDIDO = LABELS_PEDIDO.map(escRe).join('|')
+
+// Devuelve el valor de la primera `claves` encontrada dentro del texto (o '').
+function valorEtiqueta(texto, claves) {
+  const T = (texto ?? '').toString()
+  if (!T) return ''
+  for (const clave of claves) {
+    const re = new RegExp(`(?:^|[\\s;,])${escRe(clave)}\\s*[:\\-]\\s*(.+?)\\s*(?=(?:${STOP_PEDIDO})\\s*[:\\-]|;|$)`, 'i')
+    const m = T.match(re)
+    if (m && m[1].trim()) return m[1].trim()
+  }
+  return ''
+}
+
+// Tokeniza fabricante y modelo del «Texto pedido de compra». MODELO prevalece
+// sobre N° de parte cuando ambos están presentes.
+export function tokenizarFabricanteModelo(texto) {
+  return {
+    fabricante: valorEtiqueta(texto, ['FABRICANTE', 'MARCA']),
+    modelo:     valorEtiqueta(texto, ['MODELO', 'NUMERO DE PARTE', 'NÚMERO DE PARTE', 'NRO DE PARTE', 'N° DE PARTE', 'NUMERO PARTE', 'PART NUMBER', 'P/N']),
+  }
+}
+
 // Construye los items finales: aplica el mapeo, normaliza y clasifica.
 function construirItems(rows, headerIdx, mapping) {
   const get = (row, campo) => mapping[campo] !== undefined ? row[mapping[campo]] : ''
@@ -277,12 +319,17 @@ function construirItems(rows, headerIdx, mapping) {
     const row = rows[i] || []
     const desc = (get(row, 'textoBreve') ?? '').toString().trim()
     if (!desc) continue // fila sin descripción ⇒ vacía/separadora, se ignora
+    const textoPedido = (get(row, 'textoPedido') ?? '').toString().trim()
+    const { fabricante, modelo } = tokenizarFabricanteModelo(textoPedido)
     const item = {
       id:              crypto.randomUUID(),
       solped:          (get(row, 'solped') ?? '').toString().trim() || `—`,
       posicion:        (get(row, 'posicion') ?? '').toString().trim() || String(items.length + 1),
       codigoMaterial:  (get(row, 'codigoMaterial') ?? '').toString().trim(),
       textoBreve:      desc,
+      textoPedido,
+      fabricante,
+      modelo,
       especificacion:  '',
       cantidad:        parseNum(get(row, 'cantidad')),
       unidad:          normUnidad(get(row, 'unidad')),
@@ -426,21 +473,75 @@ function CatBadge({ item, onEdit }) {
   )
 }
 
-// ── Summary card ──────────────────────────────────────────────────────────────
-function SummaryCard({ nombre, count, valorUSD, active, onClick }) {
-  const info = catInfo(nombre)
+// ── Menú de cambio masivo de categoría ────────────────────────────────────────
+// Usa position:fixed (igual que CatBadge) para no quedar recortado por el toolbar.
+function BulkCatMenu({ count, onPick }) {
+  const [open, setOpen] = useState(false)
+  const [pos,  setPos]  = useState({ top: 0, left: 0 })
+  const btnRef  = useRef(null)
+  const dropRef = useRef(null)
+
+  const handleClick = () => {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 4, left: r.left })
+    }
+    setOpen(v => !v)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const close = e => {
+      if (dropRef.current?.contains(e.target) || btnRef.current?.contains(e.target)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
   return (
-    <button onClick={onClick}
-      style={{ padding: '9px 13px', borderRadius: 8, background: active ? `${info.bg}25` : C.card, border: `1px solid ${active ? info.bg : C.border}`, cursor: 'pointer', textAlign: 'left', minWidth: 110, transition: 'border-color 0.1s, background 0.1s' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-        <span style={{ width: 8, height: 8, borderRadius: 2, background: info.bg, flexShrink: 0 }} />
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: 600, color: active ? info.bg : C.muted, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{nombre}</span>
-      </div>
-      <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 800, fontSize: 22, color: C.text, lineHeight: 1 }}>{count}</div>
-      <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, marginTop: 3 }}>US$ {fmtMoney(valorUSD)}</div>
-    </button>
+    <>
+      <button ref={btnRef} onClick={handleClick}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: C.primary, color: '#fff', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        <Pencil size={12} /> Cambiar categoría
+        <ChevronDown size={11} style={{ opacity: 0.8 }} />
+      </button>
+
+      {open && (
+        <div ref={dropRef}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999, background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: 6, minWidth: 188, boxShadow: '0 8px 28px rgba(0,0,0,0.55)' }}>
+          <div style={{ padding: '4px 10px 6px', fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Mover {count} ítem{count !== 1 ? 's' : ''} a…
+          </div>
+          {CATEGORIAS_SOLPED.map(c => (
+            <button key={c.nombre} onClick={() => { onPick(c.nombre); setOpen(false) }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 10px', borderRadius: 4, background: 'transparent', border: 'none', cursor: 'pointer' }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: c.bg, flexShrink: 0 }} />
+              <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text }}>{c.nombre}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
+
+// ── Summary card (dashboard por categoría desactivado a pedido) ───────────────
+// Reactivar junto con el bloque que lo renderiza en la vista de tabla y el `summary`.
+// function SummaryCard({ nombre, count, valorUSD, active, onClick }) {
+//   const info = catInfo(nombre)
+//   return (
+//     <button onClick={onClick}
+//       style={{ padding: '9px 13px', borderRadius: 8, background: active ? `${info.bg}25` : C.card, border: `1px solid ${active ? info.bg : C.border}`, cursor: 'pointer', textAlign: 'left', minWidth: 110, transition: 'border-color 0.1s, background 0.1s' }}>
+//       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+//         <span style={{ width: 8, height: 8, borderRadius: 2, background: info.bg, flexShrink: 0 }} />
+//         <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: 600, color: active ? info.bg : C.muted, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{nombre}</span>
+//       </div>
+//       <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 800, fontSize: 22, color: C.text, lineHeight: 1 }}>{count}</div>
+//       <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, marginTop: 3 }}>US$ {fmtMoney(valorUSD)}</div>
+//     </button>
+//   )
+// }
 
 // ── Modal de confirmación de mapeo ────────────────────────────────────────────
 function MapeoModal({ data, isMobile, onConfirm, onCancel }) {
@@ -681,7 +782,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const [saving,      setSaving]      = useState(false)
   const [aviso,       setAviso]       = useState(null) // confirmación efímera (verde)
   const [confirmarEliminar, setConfirmarEliminar] = useState(null) // { id, numero } a borrar
-  const [forzarMapeo, setForzarMapeo] = useState(false)  // mostrar el popup aunque el formato esté guardado
+  const [forzarMapeo, setForzarMapeo] = useState(true)   // mostrar el popup aunque el formato esté guardado (por defecto activo)
   const [plantillas,  setPlantillas]  = useState([])     // formatos de columnas recordados
   const [verConfig,   setVerConfig]   = useState(false)  // modal de config. de columnas del documento abierto
   const [filtrosOpen, setFiltrosOpen] = useState(false)  // móvil: panel «Filtros y resumen» plegable
@@ -848,6 +949,20 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     if (docActivo) actualizarCategoriaItem(id, newCat).then(refrescarDocumentos).catch(e => setError(e.message))
   }
 
+  // Cambio masivo de categoría: aplica `newCat` a todas las filas seleccionadas.
+  const editCategoriaMasiva = newCat => {
+    const ids = filtrada.filter(it => selected.has(it.id)).map(it => it.id)
+    if (!ids.length) return
+    const idSet = new Set(ids)
+    setItems(prev => prev.map(it => idSet.has(it.id) ? { ...it, categoria: newCat, categoriaManual: true } : it))
+    if (docActivo) {
+      Promise.all(ids.map(id => actualizarCategoriaItem(id, newCat)))
+        .then(refrescarDocumentos).catch(e => setError(e.message))
+    }
+    setSelected(new Set())
+    flashAviso(`${ids.length} ítem${ids.length !== 1 ? 's' : ''} movido${ids.length !== 1 ? 's' : ''} a «${newCat}».`)
+  }
+
   // ── Filtering ─────────────────────────────────────────────────────────────
   const filtrada = items.filter(it => {
     const q = search.toLowerCase()
@@ -860,14 +975,15 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     return mSearch && mCat && mUrg
   })
 
-  // ── Summary by category ────────────────────────────────────────────────────
-  const summary = CATEGORIAS_SOLPED
-    .map(cat => ({
-      nombre:   cat.nombre,
-      count:    items.filter(it => it.categoria === cat.nombre).length,
-      valorUSD: items.filter(it => it.categoria === cat.nombre).reduce((s, it) => s + toUSD(it.valorTotal, it.moneda), 0),
-    }))
-    .filter(s => s.count > 0)
+  // ── Summary by category (dashboard de tarjetas desactivado a pedido) ────────
+  // Reactivar junto con el bloque de SummaryCard en la vista de tabla.
+  // const summary = CATEGORIAS_SOLPED
+  //   .map(cat => ({
+  //     nombre:   cat.nombre,
+  //     count:    items.filter(it => it.categoria === cat.nombre).length,
+  //     valorUSD: items.filter(it => it.categoria === cat.nombre).reduce((s, it) => s + toUSD(it.valorTotal, it.moneda), 0),
+  //   }))
+  //   .filter(s => s.count > 0)
 
   const totalUSD = items.reduce((s, it) => s + toUSD(it.valorTotal, it.moneda), 0)
 
@@ -1056,10 +1172,13 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
       {!isMobile && (<>
       {/* ── Summary cards ────────────────────────────────────────────────── */}
       <div style={{ padding: isMobile ? '10px 14px' : '10px 24px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 8, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center', paddingBottom: isMobile ? 10 : undefined }}>
+        {/* Dashboard de tarjetas resumen por categoría (count + valor) desactivado a pedido.
+            El filtrado por categoría sigue disponible en los chips «Categoría:» de abajo.
         {summary.map(s => (
           <SummaryCard key={s.nombre} nombre={s.nombre} count={s.count} valorUSD={s.valorUSD}
             active={filtroCats.includes(s.nombre)} onClick={() => toggleCatFilter(s.nombre)} />
         ))}
+        */}
         <div style={{ marginLeft: 'auto', textAlign: 'right', flexShrink: 0 }}>
           <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>
             {filename && <>{filename} · </>}{items.length} ítems
@@ -1093,9 +1212,12 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
           ))}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
             {selected.size > 0 && (
-              <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.primary, fontWeight: 600 }}>
-                {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
-              </span>
+              <>
+                <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.primary, fontWeight: 600 }}>
+                  {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
+                </span>
+                <BulkCatMenu count={selected.size} onPick={editCategoriaMasiva} />
+              </>
             )}
             <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>
               {filtrada.length} de {items.length} ítems
@@ -1131,7 +1253,9 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginRight: 2 }}>Categoría:</span>
           {CATEGORIAS_SOLPED.map(cat => {
-            if (!items.some(it => it.categoria === cat.nombre)) return null
+            // «No categoria» siempre disponible (para filtrar y reasignar en masa);
+            // el resto de chips solo si hay ítems en esa categoría.
+            if (cat.nombre !== 'No categoria' && !items.some(it => it.categoria === cat.nombre)) return null
             const active = filtroCats.includes(cat.nombre)
             return (
               <button key={cat.nombre} onClick={() => toggleCatFilter(cat.nombre)}
@@ -1205,9 +1329,12 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
               </div>
 
               {selected.size > 0 && (
-                <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.primary, fontWeight: 600 }}>
-                  {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.primary, fontWeight: 600 }}>
+                    {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
+                  </span>
+                  <BulkCatMenu count={selected.size} onPick={editCategoriaMasiva} />
+                </div>
               )}
 
               {/* Tarjetas resumen por categoría: omitidas en móvil — duplicaban el
@@ -1217,7 +1344,9 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginRight: 2 }}>Categoría:</span>
                 {CATEGORIAS_SOLPED.map(cat => {
-                  if (!items.some(it => it.categoria === cat.nombre)) return null
+                  // «No categoria» siempre disponible (para filtrar y reasignar en masa);
+            // el resto de chips solo si hay ítems en esa categoría.
+            if (cat.nombre !== 'No categoria' && !items.some(it => it.categoria === cat.nombre)) return null
                   const active = filtroCats.includes(cat.nombre)
                   return (
                     <button key={cat.nombre} onClick={() => toggleCatFilter(cat.nombre)}
@@ -1261,6 +1390,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
               <col style={{ width: 38  }} />
               <col style={{ width: 112 }} />
               <col />
+              <col style={{ width: 150 }} />
               <col style={{ width: 148 }} />
               <col style={{ width: 90  }} />
               <col style={{ width: 118 }} />
@@ -1283,6 +1413,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
               </th>
               {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>SOLPED</th>}
               <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em' }}>Descripción</th>
+              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }} title="Fabricante y modelo / N° de parte tokenizados del «Texto pedido de compra»">Fab. / Modelo</th>}
               <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Categoría</th>
               <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Cant.</th>
               {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Valor</th>}
@@ -1295,7 +1426,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
           <tbody>
             {filtrada.length === 0 ? (
               <tr>
-                <td colSpan={isMobile ? 5 : 10} style={{ padding: 48, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
+                <td colSpan={isMobile ? 5 : 11} style={{ padding: 48, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
                   Sin resultados para los filtros aplicados.
                 </td>
               </tr>
@@ -1329,6 +1460,22 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
                     <div style={{ fontSize: 10, color: C.text, marginTop: 2, fontWeight: 500 }}>{it.moneda} {fmtMoney(it.valorTotal)}</div>
                   )}
                 </td>
+
+                {!isMobile && (
+                  <td style={{ padding: '7px 8px 7px 0', overflow: 'hidden' }}
+                      title={it.textoPedido || (it.fabricante || it.modelo ? `${it.fabricante}${it.modelo ? ' · ' + it.modelo : ''}` : 'Sin «Texto pedido de compra»')}>
+                    {it.fabricante || it.modelo ? (
+                      <>
+                        <div style={{ color: C.text, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {it.fabricante || <span style={{ color: C.muted, fontWeight: 400 }}>—</span>}
+                        </div>
+                        {it.modelo && <div style={{ fontSize: 10, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.modelo}</div>}
+                      </>
+                    ) : (
+                      <span style={{ color: C.muted }}>—</span>
+                    )}
+                  </td>
+                )}
 
                 <td style={{ padding: '7px 8px 7px 0' }}>
                   <CatBadge item={it} onEdit={editCategoria} />
