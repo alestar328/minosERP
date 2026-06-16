@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { listarSelecciones, itemsDeSeleccion } from './solpedRepo.js'
 
 const C = {
   bg: '#F5F6F7', card: '#FFFFFF', shell: '#354A5E',
@@ -107,17 +108,115 @@ function Sec({ title, cols, children }) {
   )
 }
 
+// ─── BUSCADOR DE COD.SELECT.SOLPED ────────────────────────────────────────────
+// Lista las selecciones generadas en la ventana SOLPED y, al elegir una, carga
+// sus líneas (código, descripción, especificación = modelo, cantidad y unidad).
+function SeleccionPicker({ onLoad, isMobile }) {
+  const [open, setOpen]           = useState(false)
+  const [q, setQ]                 = useState('')
+  const [list, setList]           = useState([])
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState(null)
+  const [loadingId, setLoadingId] = useState(null)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true); setError(null)
+    listarSelecciones().then(setList).catch(e => setError(e.message)).finally(() => setLoading(false))
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const close = e => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  const filtered = list.filter(s => {
+    const t = q.trim().toLowerCase()
+    if (!t) return true
+    return s.codigo.toLowerCase().includes(t) || (s.etiqueta || '').toLowerCase().includes(t) || (s.cliente || '').toLowerCase().includes(t)
+  })
+
+  const pick = async s => {
+    setLoadingId(s.id); setError(null)
+    try {
+      const items = await itemsDeSeleccion(s.id)
+      onLoad(items, s.codigo)
+      setOpen(false); setQ('')
+    } catch (e) { setError(e.message) }
+    finally { setLoadingId(null) }
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 14px', borderRadius: 6, background: `${C.brand}14`, border: `1px solid ${C.brand}40`, color: C.brand, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11, whiteSpace: 'nowrap' }}>
+        Cargar COD.SELECT.SOLPED ▾
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, zIndex: 50, width: isMobile ? 270 : 350, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', padding: 10 }}>
+          <input value={q} onChange={e => setQ(e.target.value)} autoFocus placeholder="Buscar código, etiqueta o cliente…"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: 6, fontFamily: 'Inter, sans-serif', fontSize: 12, background: `${C.bg}cc`, border: `1px solid ${C.border}`, color: C.text, outline: 'none', marginBottom: 8 }} />
+          {error && <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.danger, padding: '4px 2px 8px' }}>{error}</div>}
+          {loading ? (
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, padding: '10px 2px' }}>Cargando…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, padding: '10px 2px', lineHeight: 1.5 }}>
+              {q ? 'Sin coincidencias.' : 'Aún no hay selecciones. Genera una desde la ventana SOLPED (botón «Generar orden»).'}
+            </div>
+          ) : (
+            <div style={{ maxHeight: 290, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {filtered.map(s => (
+                <button key={s.id} onClick={() => pick(s)} disabled={loadingId === s.id}
+                  style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 6, background: loadingId === s.id ? `${C.brand}10` : 'transparent', border: `1px solid ${C.border}`, cursor: loadingId === s.id ? 'default' : 'pointer' }}>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 700, color: C.brand }}>{s.codigo}</div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, marginTop: 2 }}>
+                    {[s.etiqueta, s.cliente].filter(Boolean).join(' · ')}{(s.etiqueta || s.cliente) ? ' · ' : ''}{s.nItems} ítem{s.nItems !== 1 ? 's' : ''}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── FORM SCREEN ──────────────────────────────────────────────────────────────
 function FormOC({ data, setData, onPreview, isMobile }) {
   const cols = isMobile ? 2 : 4
   // Fecha de emisión arranca bloqueada (solo lectura) con la fecha de hoy.
   // El botón "Editar" la habilita para corrección manual puntual.
   const [editFecha, setEditFecha] = useState(false)
+  const [avisoSel, setAvisoSel]   = useState('')   // aviso efímero al cargar un COD.SELECT.SOLPED
   const set = (k, v) => setData(d => ({ ...d, [k]: v }))
   const nest = (f, k, v) => setData(d => ({ ...d, [f]: { ...d[f], [k]: v } }))
   const setItem = (id, k, v) => setData(d => ({ ...d, items: d.items.map(it => it.id === id ? { ...it, [k]: v } : it) }))
   const addItem = () => setData(d => ({ ...d, items: [...d.items, mkItem()] }))
   const removeItem = id => setData(d => ({ ...d, items: d.items.filter(it => it.id !== id) }))
+
+  // Carga las líneas de una selección (COD.SELECT.SOLPED) en los ítems de la OC.
+  // Descarta los ítems vacíos previos (p.ej. la fila inicial en blanco) y añade.
+  const cargarSeleccion = (loaded, codigo) => {
+    if (!loaded?.length) return
+    const nuevos = loaded.map(r => ({
+      ...mkItem(),
+      codigo:         r.codigo || '',
+      descripcion:    r.descripcion || '',
+      especificacion: r.especificacion || '',
+      unidad:         r.unidad || 'UN',
+      cantidad:       r.cantidad ?? 1,
+    }))
+    setData(d => {
+      const conDatos = d.items.filter(it => it.codigo || it.descripcion || it.especificacion)
+      return { ...d, items: [...conDatos, ...nuevos] }
+    })
+    setAvisoSel(`Cargados ${nuevos.length} ítem${nuevos.length !== 1 ? 's' : ''} de ${codigo}.`)
+    setTimeout(() => setAvisoSel(a => a.includes(codigo) ? '' : a), 5000)
+  }
 
   const valorVenta = data.items.reduce((s, it) => s + (Number(it.cantidad) || 0) * (Number(it.precioUnitario) || 0), 0)
   const igv = valorVenta * 0.18
@@ -200,14 +299,20 @@ function FormOC({ data, setData, onPreview, isMobile }) {
 
       {/* ÍTEMS */}
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.primary, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Ítems</span>
-          <div style={{ flex: 1, height: 1, background: C.border }} />
+          <div style={{ flex: 1, height: 1, background: C.border, minWidth: 20 }} />
+          <SeleccionPicker onLoad={cargarSeleccion} isMobile={isMobile} />
           <button onClick={addItem}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 14px', borderRadius: 6, background: `${C.primary}18`, border: `1px solid ${C.primary}40`, color: C.primary, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11 }}>
             + Agregar ítem
           </button>
         </div>
+        {avisoSel && (
+          <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 6, background: `${C.brand}10`, border: `1px solid ${C.brand}33`, fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.brand }}>
+            {avisoSel}
+          </div>
+        )}
         {isMobile ? (
           /* ── Mobile: stacked item cards ── */
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

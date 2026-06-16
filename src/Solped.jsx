@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, ChevronRight, ChevronLeft, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2, Trash2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, ChevronRight, ChevronLeft, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2, Trash2, ClipboardList } from 'lucide-react'
 import SolpedAgrupado from './SolpedAgrupado.jsx'
-import { listarDocumentos, cargarDocumento, guardarDocumento, actualizarCategoriaItem, categoriaPorCodigo, solpedIdDeItem, eliminarDocumento } from './solpedRepo.js'
+import { listarDocumentos, cargarDocumento, guardarDocumento, actualizarCategoriaItem, categoriaPorCodigo, solpedIdDeItem, eliminarDocumento, generarSeleccion } from './solpedRepo.js'
 import { exportarDocumentoExcel, esExcelERP, leerCorrecciones } from './solpedExcel.js'
 
 const C = {
@@ -73,7 +73,7 @@ export const CATEGORIAS_SOLPED = [
   { nombre: 'Otros', bg: '#D3D1C7', fg: '#444441', reglas: [] },
   // Categoría vacía: SOLPEDs que conceptualmente no tienen categoría (sin clasificar).
   // Es el destino por defecto de clasificarItem cuando ninguna regla coincide.
-  { nombre: 'No categoria', bg: '#ECECEC', fg: '#8A8D90', reglas: [] },
+  { nombre: 'No categoria', bg: '#000000', fg: '#FFFFFF', reglas: [] },
 ]
 
 // Sinónimos de la celda «Grupo / Familia» → categoría del ERP. Cuando el cliente
@@ -786,6 +786,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const [plantillas,  setPlantillas]  = useState([])     // formatos de columnas recordados
   const [verConfig,   setVerConfig]   = useState(false)  // modal de config. de columnas del documento abierto
   const [filtrosOpen, setFiltrosOpen] = useState(false)  // móvil: panel «Filtros y resumen» plegable
+  const [generando,   setGenerando]   = useState(false)  // generando COD.SELECT.SOLPED
 
   const loaded = items.length > 0
   const fileInputRef = useRef(null)
@@ -961,6 +962,29 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     }
     setSelected(new Set())
     flashAviso(`${ids.length} ítem${ids.length !== 1 ? 's' : ''} movido${ids.length !== 1 ? 's' : ''} a «${newCat}».`)
+  }
+
+  // «Generar orden»: agrupa las filas seleccionadas en una selección con código
+  // interno COD.SELECT.SOLPED, buscable luego en la ventana Órdenes → Items.
+  const generarOrden = async () => {
+    const ids = filtrada.filter(it => selected.has(it.id)).map(it => it.id)
+    if (!ids.length) return
+    if (!docActivo) { setError('Abre o guarda el documento antes de generar una orden.'); return }
+    setGenerando(true); setError(null)
+    try {
+      const meta = documentos.find(d => d.id === docActivo)
+      const { codigo, nItems } = await generarSeleccion({
+        etiqueta:  meta?.numero || filename || '',
+        clienteId: meta?.clienteId || null,
+        itemIds:   ids,
+      })
+      setSelected(new Set())
+      flashAviso(`Selección creada: ${codigo} (${nItems} ítem${nItems !== 1 ? 's' : ''}). Búscala en Órdenes → Items.`)
+    } catch (e) {
+      setError('No se pudo generar la orden: ' + e.message)
+    } finally {
+      setGenerando(false)
+    }
   }
 
   // ── Filtering ─────────────────────────────────────────────────────────────
@@ -1217,6 +1241,11 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
                   {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
                 </span>
                 <BulkCatMenu count={selected.size} onPick={editCategoriaMasiva} />
+                <button onClick={generarOrden} disabled={generando}
+                  title="Agrupa las filas seleccionadas con un código COD.SELECT.SOLPED para usarlo en Órdenes"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: generando ? C.border : C.brand, color: '#fff', border: 'none', cursor: generando ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+                  {generando ? <><RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> Generando…</> : <><ClipboardList size={12} /> Generar orden</>}
+                </button>
               </>
             )}
             <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>
@@ -1334,6 +1363,11 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
                     {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
                   </span>
                   <BulkCatMenu count={selected.size} onPick={editCategoriaMasiva} />
+                  <button onClick={generarOrden} disabled={generando}
+                    title="Generar COD.SELECT.SOLPED"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: generando ? C.border : C.brand, color: '#fff', border: 'none', cursor: generando ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+                    {generando ? <><RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> Generando…</> : <><ClipboardList size={12} /> Generar orden</>}
+                  </button>
                 </div>
               )}
 

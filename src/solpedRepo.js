@@ -276,6 +276,75 @@ export async function solpedIdDeItem(itemId) {
   return data?.solped_id || null
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  COD.SELECT.SOLPED — selecciones de líneas para alimentar una Orden de Compra
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Genera el siguiente código del día: CSS-DDMMYYYY-NNN (correlativo por día).
+async function siguienteCodigoSeleccion() {
+  const d = new Date()
+  const prefijo = `CSS-${String(d.getDate()).padStart(2, '0')}${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`
+  const { data, error } = await supabase
+    .from('solped_selecciones').select('codigo').like('codigo', `${prefijo}-%`)
+  if (error) throw error
+  let max = 0
+  for (const r of data || []) { const m = String(r.codigo).match(/-(\d+)$/); if (m) max = Math.max(max, parseInt(m[1], 10)) }
+  return `${prefijo}-${String(max + 1).padStart(3, '0')}`
+}
+
+// Crea una selección (COD.SELECT.SOLPED) con las líneas indicadas. Devuelve
+// { id, codigo, nItems }. itemIds = ids reales de solped_items (documento abierto).
+export async function generarSeleccion({ etiqueta, clienteId, itemIds }) {
+  const ids = [...new Set((itemIds || []).filter(Boolean))]
+  if (!ids.length) throw new Error('No hay líneas seleccionadas.')
+  const codigo = await siguienteCodigoSeleccion()
+  const { data: sel, error: e1 } = await supabase
+    .from('solped_selecciones')
+    .insert({ codigo, etiqueta: etiqueta || null, cliente_id: clienteId || null })
+    .select('id, codigo').single()
+  if (e1) throw e1
+  const rows = ids.map(id => ({ seleccion_id: sel.id, solped_item_id: id }))
+  const { error: e2 } = await supabase.from('solped_seleccion_items').insert(rows)
+  if (e2) throw e2
+  return { id: sel.id, codigo: sel.codigo, nItems: ids.length }
+}
+
+// Lista las selecciones (para el buscador de la ventana Órdenes → Items).
+export async function listarSelecciones() {
+  const { data, error } = await supabase
+    .from('solped_selecciones')
+    .select('id, codigo, etiqueta, created_at, cliente:clientes(razon_social), solped_seleccion_items(id)')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data || []).map(s => ({
+    id:        s.id,
+    codigo:    s.codigo,
+    etiqueta:  s.etiqueta || '',
+    cliente:   s.cliente?.razon_social || '',
+    createdAt: s.created_at,
+    nItems:    (s.solped_seleccion_items || []).length,
+  }))
+}
+
+// Líneas de una selección, mapeadas a la forma de ítem de Orden de Compra:
+// código, descripción (texto breve), especificación (= modelo), cantidad y unidad.
+export async function itemsDeSeleccion(seleccionId) {
+  const { data, error } = await supabase
+    .from('solped_seleccion_items')
+    .select('solped_item:solped_items(id, codigo_material, texto_breve, modelo, unidad, cantidad)')
+    .eq('seleccion_id', seleccionId)
+  if (error) throw error
+  return (data || [])
+    .map(r => r.solped_item).filter(Boolean)
+    .map(i => ({
+      codigo:         i.codigo_material || '',
+      descripcion:    i.texto_breve || '',
+      especificacion: i.modelo || '',
+      unidad:         i.unidad || 'UN',
+      cantidad:       Number(i.cantidad) || 1,
+    }))
+}
+
 // ── Persistir una corrección manual de categoría sobre un item ──────────────────
 export async function actualizarCategoriaItem(itemId, nombreCat) {
   const maps = await getCatMaps()
