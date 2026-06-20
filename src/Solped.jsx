@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx'
 import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, ChevronRight, ChevronLeft, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2, Trash2, ClipboardList } from 'lucide-react'
 import SolpedAgrupado from './SolpedAgrupado.jsx'
 import { listarDocumentos, cargarDocumento, guardarDocumento, actualizarCategoriaItem, categoriaPorCodigo, solpedIdDeItem, eliminarDocumento, generarSeleccion } from './solpedRepo.js'
+import { codigosExistentes, codigosIgnorados, ignorarCodigos, importarMateriales } from './maestrosRepo.js'
 import { exportarDocumentoExcel, esExcelERP, leerCorrecciones } from './solpedExcel.js'
 
 const C = {
@@ -764,6 +765,112 @@ function DocumentosLista({ docs, loading, onOpen, onDelete, isMobile }) {
   )
 }
 
+// ── Modal: materiales nuevos detectados al cargar una SOLPED ──────────────────
+// Lista los códigos que aún no existen en el catálogo `materiales`. El usuario
+// edita los datos, desmarca los que no quiere y confirma el alta. La SOLPED no
+// trae proveedor: el dato relevante de origen es el FABRICANTE (cuando viene).
+function MaterialesNuevosModal({ items, isMobile, saving, onClose, onConfirm, onIgnoreAll }) {
+  const [rows, setRows] = useState(() => items.map(it => ({ ...it, incluir: true })))
+  const set = (i, k, v) => setRows(rs => rs.map((r, idx) => idx === i ? { ...r, [k]: v } : r))
+  const toggle = i => setRows(rs => rs.map((r, idx) => idx === i ? { ...r, incluir: !r.incluir } : r))
+  const incluidos = rows.filter(r => r.incluir)
+  // Confirmar: agrega los marcados y recuerda (ignora) los desmarcados.
+  const confirmar = () => onConfirm(
+    incluidos.map(({ incluir, ...rest }) => rest),
+    rows.filter(r => !r.incluir).map(r => (r.codigo || '').trim()).filter(Boolean),
+  )
+
+  const catOpts = CATEGORIAS_SOLPED.map(c => c.nombre).filter(n => n !== 'No categoria')
+  const fld = { fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, background: C.card, border: `1px solid ${C.borderInput}`, borderRadius: 6, padding: '6px 8px', outline: 'none', width: '100%', boxSizing: 'border-box' }
+  const lbl = { fontFamily: 'Inter, sans-serif', fontSize: 9, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, marginBottom: 3, display: 'block' }
+
+  const campos = (r, i) => (
+    <>
+      <div>
+        <span style={lbl}>Código</span>
+        <input value={r.codigo} onChange={e => set(i, 'codigo', e.target.value)} style={fld} />
+      </div>
+      <div style={{ gridColumn: isMobile ? '1 / -1' : 'span 2' }}>
+        <span style={lbl}>Descripción</span>
+        <input value={r.descripcion} onChange={e => set(i, 'descripcion', e.target.value)} style={fld} />
+      </div>
+      <div>
+        <span style={lbl}>Categoría</span>
+        <select value={r.categoria} onChange={e => set(i, 'categoria', e.target.value)} style={{ ...fld, cursor: 'pointer' }}>
+          <option value="">— Sin clasificar —</option>
+          {catOpts.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+      <div>
+        <span style={lbl}>Unidad</span>
+        <input value={r.unidad} onChange={e => set(i, 'unidad', e.target.value)} style={fld} placeholder="UN, KG…" />
+      </div>
+      <div>
+        <span style={lbl}>Fabricante</span>
+        <input value={r.fabricante} onChange={e => set(i, 'fabricante', e.target.value)} style={fld} />
+      </div>
+      <div>
+        <span style={lbl}>Modelo</span>
+        <input value={r.modelo} onChange={e => set(i, 'modelo', e.target.value)} style={fld} />
+      </div>
+    </>
+  )
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(50,54,58,0.5)', display: 'flex', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'center', padding: isMobile ? 0 : 20 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: isMobile ? 0 : 12, width: isMobile ? '100%' : 'min(880px, 96vw)', maxHeight: isMobile ? '100%' : '90vh', boxShadow: '0 12px 40px rgba(0,0,0,0.22)', display: 'flex', flexDirection: 'column' }}>
+
+        {/* Header */}
+        <div style={{ padding: isMobile ? '16px 16px 12px' : '20px 24px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{ width: 36, height: 36, borderRadius: '50%', background: `${C.info}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <ClipboardList size={18} style={{ color: C.info }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: C.text }}>Materiales nuevos detectados</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
+              {items.length} código{items.length !== 1 ? 's' : ''} de esta SOLPED no está{items.length !== 1 ? 'n' : ''} en el catálogo. Edita lo que quieras y desmarca los que no debas guardar. La SOLPED no trae proveedor; se usa el <b style={{ color: C.text }}>fabricante</b> como dato de origen.
+            </div>
+          </div>
+          <button onClick={onClose} title="Cerrar (volver a preguntar luego)" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}><X size={18} style={{ color: C.muted }} /></button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? 14 : '16px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {rows.map((r, i) => (
+            <div key={i} style={{ border: `1px solid ${r.incluir ? C.border : `${C.border}`}`, borderRadius: 10, padding: isMobile ? 12 : 14, background: r.incluir ? C.card : C.bg, opacity: r.incluir ? 1 : 0.6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flex: 1 }}>
+                  <input type="checkbox" checked={r.incluir} onChange={() => toggle(i)} style={{ width: 16, height: 16, accentColor: C.primary, cursor: 'pointer' }} />
+                  <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, color: r.incluir ? C.primary : C.muted }}>
+                    {r.incluir ? 'Se agregará' : 'Omitido'}
+                  </span>
+                </label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10 }}>
+                {campos(r, i)}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: isMobile ? '12px 16px' : '14px 24px', borderTop: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>{incluidos.length} de {rows.length} seleccionado{incluidos.length !== 1 ? 's' : ''}</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={onIgnoreAll} disabled={saving} title="No proponer estos códigos en futuras cargas"
+              style={{ padding: '9px 16px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: C.card, color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>No volver a proponer</button>
+            <button onClick={confirmar} disabled={saving || incluidos.length === 0}
+              style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: '#fff', border: 'none', cursor: incluidos.length ? 'pointer' : 'not-allowed', opacity: (saving || incluidos.length === 0) ? 0.6 : 1 }}>
+              {saving ? 'Guardando…' : `Agregar ${incluidos.length} al catálogo`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main SOLPED component ─────────────────────────────────────────────────────
 export default function Solped({ isMobile = false, focusDocId = null }) {
   const [items,     setItems]     = useState([])
@@ -787,6 +894,8 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const [verConfig,   setVerConfig]   = useState(false)  // modal de config. de columnas del documento abierto
   const [filtrosOpen, setFiltrosOpen] = useState(false)  // móvil: panel «Filtros y resumen» plegable
   const [generando,   setGenerando]   = useState(false)  // generando COD.SELECT.SOLPED
+  const [matNuevos,   setMatNuevos]   = useState(null)   // materiales nuevos por confirmar (modal)
+  const [guardandoMat, setGuardandoMat] = useState(false)
 
   const loaded = items.length > 0
   const fileInputRef = useRef(null)
@@ -832,10 +941,73 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
       setItems(doc.items); setFilename(fileName); setDocActivo(id)
       setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
       refrescarDocumentos()
+      await detectarMaterialesNuevos(parsed)   // propone alta de códigos aún no catalogados
     } catch (e) {
       setError('No se pudo guardar el documento: ' + e.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Detecta los códigos de la SOLPED que NO existen en el catálogo `materiales` y,
+  // si hay alguno, abre el modal para que el usuario revise/edite/confirme su alta.
+  const detectarMaterialesNuevos = async parsed => {
+    try {
+      const conCodigo = parsed.filter(p => (p.codigoMaterial || '').trim())
+      if (!conCodigo.length) return
+      const codigos = conCodigo.map(p => p.codigoMaterial)
+      // Excluye lo ya catalogado y lo que el usuario marcó "no proponer".
+      const [existentes, ignorados] = await Promise.all([codigosExistentes(codigos), codigosIgnorados(codigos)])
+      const vistos = new Set()
+      const nuevos = []
+      for (const p of conCodigo) {
+        const cod = p.codigoMaterial.trim()
+        if (existentes.has(cod) || ignorados.has(cod) || vistos.has(cod.toUpperCase())) continue
+        vistos.add(cod.toUpperCase())
+        nuevos.push({
+          codigo:      cod,
+          descripcion: p.textoBreve || '',
+          categoria:   (p.categoria && p.categoria !== 'No categoria') ? p.categoria : '',
+          unidad:      p.unidad || '',
+          fabricante:  p.fabricante || '',
+          modelo:      p.modelo || '',
+        })
+      }
+      if (nuevos.length) setMatNuevos(nuevos)
+    } catch { /* catálogo no disponible: no bloquea la carga de la SOLPED */ }
+  }
+
+  // Da de alta los materiales confirmados (editados) y RECUERDA los desmarcados
+  // (omitidos) para no volver a proponerlos en futuras recargas.
+  const guardarMaterialesNuevos = async (incluidos, omitidos = []) => {
+    setGuardandoMat(true); setError(null)
+    try {
+      const res = incluidos.length ? await importarMateriales(incluidos) : { creados: 0, actualizados: 0, errores: [] }
+      if (omitidos.length) await ignorarCodigos(omitidos)
+      setMatNuevos(null)
+      const extra = res.actualizados ? `, ${res.actualizados} actualizado${res.actualizados !== 1 ? 's' : ''}` : ''
+      const omit = omitidos.length ? ` · ${omitidos.length} no se volverá${omitidos.length !== 1 ? 'n' : ''} a proponer` : ''
+      flashAviso(`${res.creados} material${res.creados !== 1 ? 'es' : ''} agregado${res.creados !== 1 ? 's' : ''} al catálogo${extra}${omit}.`)
+      if (res.errores?.length) setError(`${res.errores.length} material(es) no se pudieron guardar.`)
+    } catch (e) {
+      setError('No se pudieron guardar los materiales: ' + e.message)
+    } finally {
+      setGuardandoMat(false)
+    }
+  }
+
+  // "No volver a proponer": recuerda TODOS los códigos detectados y cierra.
+  const ignorarTodosMateriales = async () => {
+    const codigos = (matNuevos || []).map(m => m.codigo)
+    setGuardandoMat(true); setError(null)
+    try {
+      await ignorarCodigos(codigos)
+      setMatNuevos(null)
+      flashAviso(`${codigos.length} material${codigos.length !== 1 ? 'es' : ''} no se volverá${codigos.length !== 1 ? 'n' : ''} a proponer.`)
+    } catch (e) {
+      setError('No se pudo guardar la preferencia: ' + e.message)
+    } finally {
+      setGuardandoMat(false)
     }
   }
 
@@ -1036,6 +1208,13 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
       onConfirm={(mapping, cliente) => aplicarMapeo(mapeo.rows, mapeo.headerIdx, mapping, mapeo.fileName, cliente)} />
   )
 
+  const modalMaterialesNuevos = matNuevos && (
+    <MaterialesNuevosModal items={matNuevos} isMobile={isMobile} saving={guardandoMat}
+      onClose={() => setMatNuevos(null)}
+      onIgnoreAll={ignorarTodosMateriales}
+      onConfirm={guardarMaterialesNuevos} />
+  )
+
   const avisoBanner = aviso && (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 8, background: `${C.success}15`, border: `1px solid ${C.success}40`, maxWidth: 760, width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.success }}>
       <CheckCircle2 size={15} style={{ flexShrink: 0 }} /> {aviso}
@@ -1122,6 +1301,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   if (!loaded) return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: C.bg, overflow: 'hidden' }}>
       {modalMapeo}
+      {modalMaterialesNuevos}
       {modalConfirmar}
 
       {/* ── Toolbar (SAP list report) ─────────────────────────────────────── */}
@@ -1171,6 +1351,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   return (
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg }}>
       {modalMapeo}
+      {modalMaterialesNuevos}
       {modalConfirmar}
       {modalConfig}
 

@@ -2,9 +2,17 @@ import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import Solped, { CATEGORIAS_SOLPED } from './Solped.jsx'
 import OrdenCompra from './OrdenCompra.jsx'
-import { PROV_KEY, SAMPLE_PROVEEDORES } from './proveedoresData.js'
 import Login from './Login.jsx'
 import { listarDocumentos } from './solpedRepo.js'
+import {
+  categoriasValidas,
+  listarProveedores, guardarProveedor, eliminarProveedor, setProveedorActivo, setProveedorHomologado, importarProveedores,
+  listarMateriales, guardarMaterial, eliminarMaterial, importarMateriales,
+} from './maestrosRepo.js'
+import {
+  descargarPlantillaProveedores, descargarPlantillaMateriales,
+  parseProveedores, parseMateriales, leerArchivoComoRows,
+} from './maestrosExcel.js'
 import { startProductTour } from './tour.js'
 import { supabase } from './supabaseClient.js'
 import {
@@ -15,7 +23,7 @@ import {
   LayoutDashboard, Users, ShoppingCart, FileText, Package,
   Bell, Plus, Eye, X, Calendar, CheckCircle, Search,
   ClipboardList, Monitor, Smartphone, MoreHorizontal,
-  ChevronRight, Download, Copy, AlertTriangle, LogOut, HelpCircle,
+  ChevronRight, Download, Upload, Copy, AlertTriangle, LogOut, HelpCircle,
 } from 'lucide-react'
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
@@ -277,7 +285,7 @@ function CatBadge({ nombre }) {
   )
 }
 
-const EMPTY_FORM = { razonSocial: '', ruc: '', nombreComercial: '', contactoNombre: '', contactoEmail: '', contactoTelefono: '', categorias: [], notas: '' }
+const EMPTY_FORM = { razonSocial: '', ruc: '', nombreComercial: '', contactoNombre: '', contactoEmail: '', contactoTelefono: '', direccion: '', categorias: [], notas: '' }
 
 function validateProvForm(form) {
   const errs = {}
@@ -292,11 +300,12 @@ function validateProvForm(form) {
 
 // ─── NAV ──────────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'dashboard',   label: 'Dashboard',  icon: LayoutDashboard },
-  { id: 'solped',      label: 'SOLPEDs',    icon: ClipboardList   },
+  { id: 'dashboard',   label: 'Dashboard',   icon: LayoutDashboard },
+  { id: 'solped',      label: 'SOLPEDs',     icon: ClipboardList   },
   { id: 'proveedores', label: 'Proveedores', icon: Users           },
-  { id: 'ordenes',     label: 'Órdenes',    icon: ShoppingCart    },
-  { id: 'acuerdos',    label: 'Acuerdos',   icon: FileText        },
+  { id: 'materiales',  label: 'Materiales',  icon: Package         },
+  { id: 'ordenes',     label: 'Órdenes',     icon: ShoppingCart    },
+  { id: 'acuerdos',    label: 'Acuerdos',    icon: FileText        },
 ]
 const NAV_PRIMARY   = NAV
 const NAV_SECONDARY = []
@@ -1179,10 +1188,92 @@ function ProveedorDialog({ prov, isMobile, onClose, onSetHomologado }) {
 }
 
 // ─── PROVEEDORES ──────────────────────────────────────────────────────────────
+// ─── MAESTROS: helpers de carga Excel (compartidos Proveedores / Materiales) ──
+function ghostBtn(isMobile) {
+  return { display: 'flex', alignItems: 'center', gap: 6, padding: isMobile ? '8px 12px' : '8px 14px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.card, color: C.primary, border: `1px solid ${C.primary}55`, cursor: 'pointer', whiteSpace: 'nowrap' }
+}
+
+function ImportButtons({ isMobile, importing, onPlantilla, onFile }) {
+  const ref = useRef(null)
+  return (
+    <>
+      <input ref={ref} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
+        onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
+      <button onClick={onPlantilla} title="Descargar plantilla Excel vacía" style={ghostBtn(isMobile)}>
+        <Download size={13} />{!isMobile && 'Plantilla'}
+      </button>
+      <button onClick={() => ref.current?.click()} disabled={importing} title="Cargar un Excel a la base de datos"
+        style={{ ...ghostBtn(isMobile), opacity: importing ? 0.6 : 1 }}>
+        <Upload size={13} />{importing ? 'Cargando…' : (isMobile ? 'Importar' : 'Importar Excel')}
+      </button>
+    </>
+  )
+}
+
+// Modal con el resultado de una carga masiva (creados / actualizados / errores).
+function ImportResumenModal({ resumen, titulo, isMobile, onClose }) {
+  if (!resumen) return null
+  const { creados = 0, actualizados = 0, errores = [] } = resumen
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(50,54,58,0.52)', padding: isMobile ? '0 16px' : 0 }}>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 28, width: isMobile ? '100%' : 460, maxHeight: '85vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 15, color: C.text }}>{titulo}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} style={{ color: C.muted }} /></button>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginBottom: errores.length ? 16 : 0 }}>
+          <div style={{ flex: 1, padding: '12px', borderRadius: 8, background: `${C.success}12`, border: `1px solid ${C.success}40`, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 22, color: C.success }}>{creados}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>Creados</div>
+          </div>
+          <div style={{ flex: 1, padding: '12px', borderRadius: 8, background: `${C.primary}12`, border: `1px solid ${C.primary}40`, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 22, color: C.primary }}>{actualizados}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>Actualizados</div>
+          </div>
+          <div style={{ flex: 1, padding: '12px', borderRadius: 8, background: errores.length ? `${C.danger}12` : C.bg, border: `1px solid ${errores.length ? C.danger + '40' : C.border}`, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 22, color: errores.length ? C.danger : C.muted }}>{errores.length}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>Con error</div>
+          </div>
+        </div>
+        {errores.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginBottom: 6 }}>Filas no cargadas:</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto' }}>
+              {errores.map((e, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, padding: '6px 10px', borderRadius: 6, background: `${C.danger}08`, border: `1px solid ${C.danger}25`, fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.text }}>
+                  <AlertTriangle size={13} style={{ color: C.danger, flexShrink: 0, marginTop: 1 }} />
+                  <span><b>{e.ruc || e.codigo || `Fila ${e.fila}`}</b> — {e.msg}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
+          <button onClick={onClose} style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer' }}>Entendido</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Toast efímero inferior (confirmaciones de guardado/carga).
+function MaestroToast({ msg }) {
+  if (!msg) return null
+  return (
+    <div style={{ position: 'fixed', bottom: 70, left: '50%', transform: 'translateX(-50%)', zIndex: 80, background: C.shell, color: '#fff', padding: '10px 18px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.25)' }}>
+      {msg}
+    </div>
+  )
+}
+
 function Proveedores({ isMobile }) {
-  const [lista, setLista] = useState(() => {
-    try { const raw = localStorage.getItem(PROV_KEY); return raw ? JSON.parse(raw) : SAMPLE_PROVEEDORES } catch { return SAMPLE_PROVEEDORES }
-  })
+  const [lista,     setLista]     = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [error,     setError]     = useState(null)
+  const [toast,     setToast]     = useState(null)
+  const [saving,    setSaving]    = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [resumen,   setResumen]   = useState(null)
   const [search,    setSearch]    = useState('')
   const [filtroCats,setFiltroCats]= useState([])
   const [filtroEstado, setFiltroEstado] = useState('todos')
@@ -1191,32 +1282,65 @@ function Proveedores({ isMobile }) {
   const [errores,   setErrores]   = useState({})
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [provDetail,    setProvDetail]    = useState(null)
-  const isFirstSave = useRef(true)
 
-  useEffect(() => {
-    if (isFirstSave.current) { isFirstSave.current = false; return }
-    localStorage.setItem(PROV_KEY, JSON.stringify(lista))
-  }, [lista])
+  const flash = msg => { setToast(msg); setTimeout(() => setToast(t => t === msg ? null : t), 3500) }
+
+  const recargar = () =>
+    listarProveedores().then(setLista).catch(e => setError(e.message)).finally(() => setLoading(false))
+
+  useEffect(() => { recargar() }, [])
 
   const openNuevo  = () => { setForm({ ...EMPTY_FORM }); setErrores({}); setModal('nuevo') }
   const openEditar = p => {
-    setForm({ razonSocial: p.razonSocial, ruc: p.ruc, nombreComercial: p.nombreComercial, contactoNombre: p.contactoNombre, contactoEmail: p.contactoEmail, contactoTelefono: p.contactoTelefono, categorias: [...p.categorias], notas: p.notas })
+    setForm({ razonSocial: p.razonSocial, ruc: p.ruc, nombreComercial: p.nombreComercial, contactoNombre: p.contactoNombre, contactoEmail: p.contactoEmail, contactoTelefono: p.contactoTelefono, direccion: p.direccion || '', categorias: [...p.categorias], notas: p.notas, estadoHomologacion: p.estadoHomologacion })
     setErrores({}); setModal(p.id)
   }
   const closeModal = () => { setModal(null); setErrores({}) }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const errs = validateProvForm(form)
     if (Object.keys(errs).length > 0) { setErrores(errs); return }
-    if (modal === 'nuevo') setLista(prev => [{ ...form, id: crypto.randomUUID(), fechaAlta: new Date().toISOString().slice(0, 10), activo: true }, ...prev])
-    else setLista(prev => prev.map(p => p.id === modal ? { ...p, ...form } : p))
-    closeModal()
+    const id = modal === 'nuevo' ? null : modal
+    setSaving(true); setError(null)
+    try {
+      await guardarProveedor({ ...form, id, estadoHomologacion: form.estadoHomologacion || 'Pendiente' })
+      await recargar()
+      closeModal()
+      flash(id ? 'Proveedor actualizado.' : 'Proveedor creado.')
+    } catch (e) {
+      setError('No se pudo guardar el proveedor: ' + e.message)
+    } finally { setSaving(false) }
   }
 
-  const toggleActivo   = id => setLista(prev => prev.map(p => p.id === id ? { ...p, activo: !p.activo } : p))
-  const setHomologado  = (id, val) => setLista(prev => prev.map(p => p.id === id ? { ...p, homologado: val } : p))
-  const handleDelete   = id => { setLista(prev => prev.filter(p => p.id !== id)); setConfirmDelete(null) }
-  const provVista      = lista.find(p => p.id === provDetail) || null
+  const toggleActivo = async p => {
+    try { await setProveedorActivo(p.id, !p.activo); await recargar() }
+    catch (e) { setError(e.message) }
+  }
+  const setHomologado = async (id, val) => {
+    try { await setProveedorHomologado(id, val); await recargar() }
+    catch (e) { setError(e.message) }
+  }
+  const handleDelete = async id => {
+    setConfirmDelete(null)
+    try { await eliminarProveedor(id); await recargar(); flash('Proveedor eliminado.') }
+    catch (e) { setError('No se pudo eliminar: ' + e.message) }
+  }
+
+  const handleImport = async file => {
+    setImporting(true); setError(null)
+    try {
+      const rows = await leerArchivoComoRows(file)
+      const cats = await categoriasValidas()
+      const { ok, errores: errParse } = parseProveedores(rows, cats)
+      const res = ok.length ? await importarProveedores(ok) : { creados: 0, actualizados: 0, errores: [] }
+      setResumen({ ...res, errores: [...errParse, ...res.errores] })
+      await recargar()
+    } catch (e) {
+      setError('No se pudo importar el Excel: ' + e.message)
+    } finally { setImporting(false) }
+  }
+
+  const provVista = lista.find(p => p.id === provDetail) || null
 
   const toggleCatFilter = cat => setFiltroCats(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])
   const toggleFormCat   = cat => {
@@ -1266,10 +1390,13 @@ function Proveedores({ isMobile }) {
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, display: isMobile ? 'none' : 'inline' }}>
             {filtrada.length} resultado{filtrada.length !== 1 ? 's' : ''}
           </span>
-          <button onClick={openNuevo}
-            style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: isMobile ? '8px 14px' : '8px 18px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            <Plus size={13} />{isMobile ? 'Nuevo' : 'Nuevo Proveedor'}
-          </button>
+          <div data-tour="prov-acciones" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <ImportButtons isMobile={isMobile} importing={importing} onPlantilla={descargarPlantillaProveedores} onFile={handleImport} />
+            <button onClick={openNuevo}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isMobile ? '8px 14px' : '8px 18px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <Plus size={13} />{isMobile ? 'Nuevo' : 'Nuevo Proveedor'}
+            </button>
+          </div>
         </div>
 
         {isMobile && (
@@ -1308,7 +1435,9 @@ function Proveedores({ isMobile }) {
 
       {/* ── Content ── */}
       <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '0 0 8px' : '0 24px 24px' }}>
-        {filtrada.length === 0 ? (
+        {loading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50%', fontFamily: 'Inter, sans-serif', fontSize: 13, color: C.muted }}>Cargando proveedores…</div>
+        ) : filtrada.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60%', gap: 12 }}>
             <div style={{ width: 52, height: 52, borderRadius: 12, background: C.card, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Users size={22} style={{ color: C.muted }} />
@@ -1347,7 +1476,7 @@ function Proveedores({ isMobile }) {
 
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => openEditar(p)} style={{ flex: 1, fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: C.muted, padding: '6px 0', borderRadius: 6, cursor: 'pointer' }}>Editar</button>
-                  <button onClick={() => toggleActivo(p.id)} style={{ flex: 1, fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: p.activo ? C.warn : C.primary, padding: '6px 0', borderRadius: 6, cursor: 'pointer' }}>{p.activo ? 'Desactivar' : 'Activar'}</button>
+                  <button onClick={() => toggleActivo(p)} style={{ flex: 1, fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: p.activo ? C.warn : C.primary, padding: '6px 0', borderRadius: 6, cursor: 'pointer' }}>{p.activo ? 'Desactivar' : 'Activar'}</button>
                   <button onClick={() => setConfirmDelete(p.id)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.danger}40`, color: C.danger, padding: '6px 10px', borderRadius: 6, cursor: 'pointer' }}>×</button>
                 </div>
               </div>
@@ -1389,7 +1518,7 @@ function Proveedores({ isMobile }) {
                     <td style={{ padding: '12px 0 12px 0' }}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button onClick={() => openEditar(p)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: C.muted, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Editar</button>
-                        <button onClick={() => toggleActivo(p.id)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: p.activo ? C.warn : C.primary, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>{p.activo ? 'Desactivar' : 'Activar'}</button>
+                        <button onClick={() => toggleActivo(p)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: p.activo ? C.warn : C.primary, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>{p.activo ? 'Desactivar' : 'Activar'}</button>
                         <button onClick={() => setConfirmDelete(p.id)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.danger}40`, color: C.danger, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Eliminar</button>
                       </div>
                     </td>
@@ -1431,6 +1560,9 @@ function Proveedores({ isMobile }) {
               <FormField label="Email de Contacto *" error={errores.contactoEmail}>
                 <input value={form.contactoEmail} onChange={e => setField('contactoEmail', e.target.value, 'contactoEmail')} placeholder="correo@empresa.com" style={inputStyle(errores.contactoEmail)} />
               </FormField>
+              <FormField label="Dirección">
+                <input value={form.direccion} onChange={e => setField('direccion', e.target.value)} placeholder="Dirección fiscal o de despacho" style={inputStyle()} />
+              </FormField>
               <FormField label="Categorías * — selecciona una o más" error={errores.categorias}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '10px 12px', borderRadius: 8, border: `1px solid ${errores.categorias ? C.danger : C.border}`, background: C.bg }}>
                   {CATEGORIAS.map(cat => {
@@ -1450,7 +1582,7 @@ function Proveedores({ isMobile }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20, paddingTop: 18, borderTop: `1px solid ${C.border}` }}>
               <button onClick={closeModal} style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={handleSave} style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer' }}>{isEdit ? 'Guardar Cambios' : 'Crear Proveedor'}</button>
+              <button onClick={handleSave} disabled={saving} style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>{saving ? 'Guardando…' : (isEdit ? 'Guardar Cambios' : 'Crear Proveedor')}</button>
             </div>
           </div>
         </div>
@@ -1476,6 +1608,314 @@ function Proveedores({ isMobile }) {
       {provVista && (
         <ProveedorDialog prov={provVista} isMobile={isMobile} onClose={() => setProvDetail(null)} onSetHomologado={setHomologado} />
       )}
+
+      {/* ── Resultado de carga Excel ── */}
+      <ImportResumenModal resumen={resumen} titulo="Carga de proveedores" isMobile={isMobile} onClose={() => setResumen(null)} />
+
+      {/* ── Error / Toast ── */}
+      {error && (
+        <div style={{ position: 'fixed', bottom: 70, left: '50%', transform: 'translateX(-50%)', zIndex: 80, display: 'flex', alignItems: 'center', gap: 8, background: C.danger, color: '#fff', padding: '10px 16px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.25)', maxWidth: '90%' }}>
+          <AlertTriangle size={14} /> {error}
+          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', marginLeft: 6 }}><X size={13} /></button>
+        </div>
+      )}
+      <MaestroToast msg={toast} />
+    </div>
+  )
+}
+
+
+// ─── MATERIALES (Maestro de catálogo) ────────────────────────────────────────
+const EMPTY_MAT = { codigo: '', descripcion: '', categoria: '', unidad: '', fabricante: '', modelo: '', ultimoPrecio: '', ultimaMoneda: 'USD' }
+
+function validateMatForm(form) {
+  const errs = {}
+  if (!form.codigo.trim()) errs.codigo = 'Obligatorio'
+  if (!form.descripcion.trim()) errs.descripcion = 'Obligatorio'
+  if (form.ultimoPrecio !== '' && isNaN(parseFloat(form.ultimoPrecio))) errs.ultimoPrecio = 'Debe ser numérico'
+  return errs
+}
+
+function Materiales({ isMobile }) {
+  const [lista,     setLista]     = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [error,     setError]     = useState(null)
+  const [toast,     setToast]     = useState(null)
+  const [saving,    setSaving]    = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [resumen,   setResumen]   = useState(null)
+  const [search,    setSearch]    = useState('')
+  const [filtroCats,setFiltroCats]= useState([])
+  const [modal,     setModal]     = useState(null)
+  const [form,      setForm]      = useState({ ...EMPTY_MAT })
+  const [errores,   setErrores]   = useState({})
+  const [confirmDelete, setConfirmDelete] = useState(null)
+
+  const flash = msg => { setToast(msg); setTimeout(() => setToast(t => t === msg ? null : t), 3500) }
+  const recargar = () =>
+    listarMateriales().then(setLista).catch(e => setError(e.message)).finally(() => setLoading(false))
+  useEffect(() => { recargar() }, [])
+
+  const openNuevo  = () => { setForm({ ...EMPTY_MAT }); setErrores({}); setModal('nuevo') }
+  const openEditar = m => {
+    setForm({ codigo: m.codigo, descripcion: m.descripcion, categoria: m.categoria || '', unidad: m.unidad || '', fabricante: m.fabricante || '', modelo: m.modelo || '', ultimoPrecio: m.ultimoPrecio ?? '', ultimaMoneda: m.ultimaMoneda || 'USD' })
+    setErrores({}); setModal(m.id)
+  }
+  const closeModal = () => { setModal(null); setErrores({}) }
+  const setField = (key, val, errKey) => {
+    setForm(f => ({ ...f, [key]: val }))
+    if (errKey && errores[errKey]) setErrores(e => ({ ...e, [errKey]: undefined }))
+  }
+
+  const handleSave = async () => {
+    const errs = validateMatForm(form)
+    if (Object.keys(errs).length > 0) { setErrores(errs); return }
+    const id = modal === 'nuevo' ? null : modal
+    setSaving(true); setError(null)
+    try {
+      await guardarMaterial({ ...form, id, ultimoPrecio: form.ultimoPrecio === '' ? null : parseFloat(form.ultimoPrecio) })
+      await recargar(); closeModal()
+      flash(id ? 'Material actualizado.' : 'Material creado.')
+    } catch (e) {
+      setError('No se pudo guardar el material: ' + e.message)
+    } finally { setSaving(false) }
+  }
+
+  const handleDelete = async id => {
+    setConfirmDelete(null)
+    try { await eliminarMaterial(id); await recargar(); flash('Material eliminado.') }
+    catch (e) { setError('No se pudo eliminar: ' + e.message) }
+  }
+
+  const handleImport = async file => {
+    setImporting(true); setError(null)
+    try {
+      const rows = await leerArchivoComoRows(file)
+      const cats = await categoriasValidas()
+      const { ok, errores: errParse } = parseMateriales(rows, cats)
+      const res = ok.length ? await importarMateriales(ok) : { creados: 0, actualizados: 0, errores: [] }
+      setResumen({ ...res, errores: [...errParse, ...res.errores] })
+      await recargar()
+    } catch (e) {
+      setError('No se pudo importar el Excel: ' + e.message)
+    } finally { setImporting(false) }
+  }
+
+  const toggleCatFilter = cat => setFiltroCats(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])
+  const filtrada = lista.filter(m => {
+    const q = search.toLowerCase()
+    const matchSearch = !q || m.codigo.toLowerCase().includes(q) || m.descripcion.toLowerCase().includes(q) || (m.fabricante || '').toLowerCase().includes(q) || (m.modelo || '').toLowerCase().includes(q)
+    const matchCats = filtroCats.length === 0 || filtroCats.includes(m.categoria)
+    return matchSearch && matchCats
+  })
+
+  const isEdit  = modal && modal !== 'nuevo'
+  const delMat  = lista.find(m => m.id === confirmDelete)
+  const modalOverlayStyle = isMobile
+    ? { position: 'fixed', inset: 0, zIndex: 50, background: C.bg, display: 'flex', flexDirection: 'column', overflow: 'auto' }
+    : { position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(50,54,58,0.50)' }
+  const modalBoxStyle = isMobile
+    ? { background: C.card, padding: '16px 16px 40px', flex: 1 }
+    : { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, width: 560, maxHeight: '90vh', overflowY: 'auto' }
+
+  return (
+    <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg }}>
+      {/* ── Toolbar ── */}
+      <div style={{ padding: isMobile ? '10px 14px' : '14px 24px', borderBottom: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: isMobile ? 1 : 'none' }}>
+            <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder={isMobile ? 'Buscar...' : 'Código, descripción, fabricante o modelo...'}
+              style={{ paddingLeft: 30, paddingRight: 12, paddingTop: 8, paddingBottom: 8, borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: C.card, border: `1px solid ${C.border}`, color: C.text, outline: 'none', width: isMobile ? '100%' : 320 }} />
+          </div>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, display: isMobile ? 'none' : 'inline' }}>
+            {filtrada.length} material{filtrada.length !== 1 ? 'es' : ''}
+          </span>
+          <div data-tour="mat-acciones" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <ImportButtons isMobile={isMobile} importing={importing} onPlantilla={descargarPlantillaMateriales} onFile={handleImport} />
+            <button onClick={openNuevo}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isMobile ? '8px 14px' : '8px 18px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <Plus size={13} />{isMobile ? 'Nuevo' : 'Nuevo Material'}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 6, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center', paddingBottom: isMobile ? 2 : 0 }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginRight: 4, flexShrink: 0 }}>Cat:</span>
+          {CATEGORIAS.map(cat => {
+            const active = filtroCats.includes(cat.nombre)
+            return (
+              <button key={cat.nombre} onClick={() => toggleCatFilter(cat.nombre)}
+                style={{ padding: '3px 10px', borderRadius: 4, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: active ? 600 : 400, background: active ? cat.bg : `${cat.bg}22`, color: active ? cat.fg : cat.bg, border: `1px solid ${active ? cat.bg : cat.bg + '60'}`, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                {cat.nombre}
+              </button>
+            )
+          })}
+          {filtroCats.length > 0 && (
+            <button onClick={() => setFiltroCats([])}
+              style={{ padding: '3px 10px', borderRadius: 4, fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'transparent', color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer', flexShrink: 0 }}>
+              × Limpiar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Content ── */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '0 0 8px' : '0 24px 24px' }}>
+        {loading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50%', fontFamily: 'Inter, sans-serif', fontSize: 13, color: C.muted }}>Cargando catálogo…</div>
+        ) : filtrada.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60%', gap: 12 }}>
+            <div style={{ width: 52, height: 52, borderRadius: 12, background: C.card, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Package size={22} style={{ color: C.muted }} />
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 14, color: C.text, marginBottom: 4 }}>
+                {lista.length === 0 ? 'No hay materiales registrados' : 'Sin resultados'}
+              </div>
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
+                {lista.length === 0 ? 'Importa un Excel o toca "Nuevo" para comenzar.' : 'Ajusta los filtros o la búsqueda.'}
+              </div>
+            </div>
+          </div>
+        ) : isMobile ? (
+          /* ── Mobile card list ── */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {filtrada.map(m => (
+              <div key={m.id} style={{ padding: '14px 16px', borderBottom: `1px solid ${C.border}30` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                  <div style={{ flex: 1, marginRight: 10 }}>
+                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontWeight: 700, fontSize: 12, color: C.primary }}>{m.codigo}</span>
+                    <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, marginTop: 2 }}>{m.descripcion}</div>
+                  </div>
+                  {m.categoria && <CatBadge nombre={m.categoria} />}
+                </div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginBottom: 10 }}>
+                  {m.unidad && <span>Unidad: <b style={{ color: C.text }}>{m.unidad}</b></span>}
+                  {m.fabricante && <span>{m.fabricante}{m.modelo ? ` · ${m.modelo}` : ''}</span>}
+                  {m.ultimoPrecio != null && <span>{m.ultimaMoneda} {m.ultimoPrecio}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => openEditar(m)} style={{ flex: 1, fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: C.muted, padding: '6px 0', borderRadius: 6, cursor: 'pointer' }}>Editar</button>
+                  <button onClick={() => setConfirmDelete(m.id)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.danger}40`, color: C.danger, padding: '6px 10px', borderRadius: 6, cursor: 'pointer' }}>×</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          /* ── Desktop table ── */
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, marginTop: 16 }}>
+            <thead>
+              <tr style={{ color: C.muted, borderBottom: `1px solid ${C.border}` }}>
+                {['Código', 'Descripción', 'Categoría', 'Unidad', 'Fabricante / Modelo', 'Últ. Precio', 'Acciones'].map(h => (
+                  <th key={h} style={{ padding: '0 12px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, letterSpacing: '0.05em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtrada.map(m => (
+                <tr key={m.id} style={{ borderBottom: `1px solid ${C.border}40`, color: C.text }}>
+                  <td style={{ padding: '12px 12px 12px 0', fontFamily: 'IBM Plex Mono, monospace', fontWeight: 700, color: C.primary }}>{m.codigo}</td>
+                  <td style={{ padding: '12px 12px 12px 0' }}>{m.descripcion}</td>
+                  <td style={{ padding: '12px 12px 12px 0' }}>{m.categoria ? <CatBadge nombre={m.categoria} /> : <span style={{ color: C.muted, fontSize: 11 }}>—</span>}</td>
+                  <td style={{ padding: '12px 12px 12px 0', color: C.muted }}>{m.unidad || '—'}</td>
+                  <td style={{ padding: '12px 12px 12px 0', color: C.muted }}>{m.fabricante || m.modelo ? `${m.fabricante || ''}${m.modelo ? ' · ' + m.modelo : ''}` : '—'}</td>
+                  <td style={{ padding: '12px 12px 12px 0', color: C.muted }}>{m.ultimoPrecio != null ? `${m.ultimaMoneda} ${m.ultimoPrecio}` : '—'}</td>
+                  <td style={{ padding: '12px 0 12px 0' }}>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => openEditar(m)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: C.muted, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Editar</button>
+                      <button onClick={() => setConfirmDelete(m.id)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.danger}40`, color: C.danger, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Eliminar</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* ── Create / Edit Modal ── */}
+      {modal && (
+        <div style={modalOverlayStyle}>
+          <div style={modalBoxStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 15, color: C.text }}>{isEdit ? 'Editar Material' : 'Nuevo Material'}</div>
+              <button onClick={closeModal} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} style={{ color: C.muted }} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <FormField label="Código *" error={errores.codigo}>
+                  <input value={form.codigo} onChange={e => setField('codigo', e.target.value, 'codigo')} placeholder="MAT-100001" style={inputStyle(errores.codigo)} />
+                </FormField>
+                <FormField label="Unidad">
+                  <input value={form.unidad} onChange={e => setField('unidad', e.target.value)} placeholder="UN, KG, M, L…" style={inputStyle()} />
+                </FormField>
+              </div>
+              <FormField label="Descripción *" error={errores.descripcion}>
+                <input value={form.descripcion} onChange={e => setField('descripcion', e.target.value, 'descripcion')} placeholder="Descripción del material" style={inputStyle(errores.descripcion)} />
+              </FormField>
+              <FormField label="Categoría">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg }}>
+                  {CATEGORIAS.map(cat => {
+                    const sel = form.categoria === cat.nombre
+                    return (
+                      <button key={cat.nombre} type="button" onClick={() => setField('categoria', sel ? '' : cat.nombre)}
+                        style={{ padding: '5px 12px', borderRadius: 6, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: sel ? 600 : 400, background: sel ? cat.bg : `${cat.bg}20`, color: sel ? cat.fg : cat.bg, border: `2px solid ${sel ? cat.bg : cat.bg + '55'}`, cursor: 'pointer' }}>
+                        {cat.nombre}
+                      </button>
+                    )
+                  })}
+                </div>
+              </FormField>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <FormField label="Fabricante">
+                  <input value={form.fabricante} onChange={e => setField('fabricante', e.target.value)} placeholder="Marca / OEM" style={inputStyle()} />
+                </FormField>
+                <FormField label="Modelo">
+                  <input value={form.modelo} onChange={e => setField('modelo', e.target.value)} placeholder="Código de parte / modelo" style={inputStyle()} />
+                </FormField>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <FormField label="Último Precio" error={errores.ultimoPrecio}>
+                  <input value={form.ultimoPrecio} onChange={e => setField('ultimoPrecio', e.target.value, 'ultimoPrecio')} placeholder="0.00" style={inputStyle(errores.ultimoPrecio)} />
+                </FormField>
+                <FormField label="Moneda">
+                  <input value={form.ultimaMoneda} onChange={e => setField('ultimaMoneda', e.target.value)} placeholder="USD" maxLength={3} style={inputStyle()} />
+                </FormField>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20, paddingTop: 18, borderTop: `1px solid ${C.border}` }}>
+              <button onClick={closeModal} style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={handleSave} disabled={saving} style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>{saving ? 'Guardando…' : (isEdit ? 'Guardar Cambios' : 'Crear Material')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation ── */}
+      {confirmDelete && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(50,54,58,0.52)', padding: isMobile ? '0 20px' : 0 }}>
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 28, width: isMobile ? '100%' : 400 }}>
+            <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 8 }}>Eliminar Material</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, marginBottom: 20 }}>
+              ¿Eliminar <b style={{ color: C.text }}>{delMat?.codigo}</b> — {delMat?.descripcion}? Esta acción no se puede deshacer.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button onClick={() => setConfirmDelete(null)} style={{ padding: '8px 18px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={() => handleDelete(confirmDelete)} style={{ padding: '8px 18px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.danger, color: '#fff', border: 'none', cursor: 'pointer' }}>Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ImportResumenModal resumen={resumen} titulo="Carga de materiales" isMobile={isMobile} onClose={() => setResumen(null)} />
+      {error && (
+        <div style={{ position: 'fixed', bottom: 70, left: '50%', transform: 'translateX(-50%)', zIndex: 80, display: 'flex', alignItems: 'center', gap: 8, background: C.danger, color: '#fff', padding: '10px 16px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.25)', maxWidth: '90%' }}>
+          <AlertTriangle size={14} /> {error}
+          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', marginLeft: 6 }}><X size={13} /></button>
+        </div>
+      )}
+      <MaestroToast msg={toast} />
     </div>
   )
 }
@@ -1536,6 +1976,7 @@ const VIEWS = {
   dashboard:   { comp: Dashboard,   title: 'Dashboard Ejecutivo'    },
   solped:      { comp: Solped,      title: 'Procesamiento SOLPED'   },
   proveedores: { comp: Proveedores, title: 'Maestro de Proveedores' },
+  materiales:  { comp: Materiales,  title: 'Maestro de Materiales'  },
   ordenes:     { comp: OrdenCompra, title: 'Órdenes de Compra'      },
   acuerdos:    { comp: Acuerdos,    title: 'Acuerdos Marco'         },
 }

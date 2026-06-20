@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { listarSelecciones, itemsDeSeleccion } from './solpedRepo.js'
+import { listarProveedores } from './maestrosRepo.js'
 
 const C = {
   bg: '#F5F6F7', card: '#FFFFFF', shell: '#354A5E',
@@ -79,18 +80,43 @@ const INIT = () => ({
 
 // ─── FORM COMPONENTS ──────────────────────────────────────────────────────────
 function Inp({ label, value, onChange, type = 'text', placeholder, span = 1, disabled = false }) {
+  const [focused, setFocused] = useState(false)
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 5, gridColumn: `span ${span}` }}>
-      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</span>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 5, gridColumn: `span ${span}`, minWidth: 0 }}>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>{label}</span>
       <input
         type={type}
         value={value ?? ''}
         onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder={placeholder}
         disabled={disabled}
-        style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: disabled ? C.muted : C.text, background: disabled ? `${C.border}55` : `${C.bg}cc`, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', outline: 'none', width: '100%', boxSizing: 'border-box', cursor: disabled ? 'not-allowed' : 'text' }}
+        style={{
+          fontFamily: 'Inter, sans-serif', fontSize: 12,
+          color: disabled ? C.muted : C.text,
+          background: disabled ? `${C.border}55` : C.card,
+          border: `1px solid ${focused ? C.primary : C.borderInput}`,
+          boxShadow: focused ? `0 0 0 2px ${C.primary}22` : 'none',
+          borderRadius: 6, padding: '8px 10px', outline: 'none', width: '100%', boxSizing: 'border-box',
+          cursor: disabled ? 'not-allowed' : 'text', transition: 'border-color .12s, box-shadow .12s',
+        }}
       />
     </label>
+  )
+}
+
+// Cabecera de tarjeta de formulario (barra de acento + título + subtítulo + slot derecho).
+function CardHead({ accent, title, subtitle, right }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ width: 4, height: 24, borderRadius: 2, background: accent, flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: C.text }}>{title}</div>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{subtitle}</div>
+      </div>
+      {right}
+    </div>
   )
 }
 
@@ -185,6 +211,76 @@ function SeleccionPicker({ onLoad, isMobile }) {
   )
 }
 
+// ─── BUSCADOR DE PROVEEDOR (maestro Supabase) ─────────────────────────────────
+// Lista el maestro de proveedores y, al elegir uno, autorrellena la sección
+// "Proveedor" de la OC (RUC, razón social, dirección, teléfono, contacto, email).
+function ProveedorPicker({ onPick, isMobile }) {
+  const [open, setOpen]       = useState(false)
+  const [q, setQ]             = useState('')
+  const [list, setList]       = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError]     = useState(null)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true); setError(null)
+    listarProveedores().then(setList).catch(e => setError(e.message)).finally(() => setLoading(false))
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const close = e => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  const filtered = list.filter(p => {
+    const t = q.trim().toLowerCase()
+    if (!t) return true
+    return p.razonSocial.toLowerCase().includes(t) || (p.ruc || '').includes(t) || (p.nombreComercial || '').toLowerCase().includes(t)
+  })
+
+  const pick = p => { onPick(p); setOpen(false); setQ('') }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" data-tour="oc-proveedor" onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 6, background: C.info, border: `1px solid ${C.info}`, color: '#fff', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', boxShadow: `0 1px 2px ${C.info}55` }}>
+        Seleccionar proveedor ▾
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, zIndex: 50, width: isMobile ? 270 : 360, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', padding: 10 }}>
+          <input value={q} onChange={e => setQ(e.target.value)} autoFocus placeholder="Buscar razón social, RUC o nombre comercial…"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: 6, fontFamily: 'Inter, sans-serif', fontSize: 12, background: `${C.bg}cc`, border: `1px solid ${C.border}`, color: C.text, outline: 'none', marginBottom: 8 }} />
+          {error && <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.danger, padding: '4px 2px 8px' }}>{error}</div>}
+          {loading ? (
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, padding: '10px 2px' }}>Cargando…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, padding: '10px 2px', lineHeight: 1.5 }}>
+              {q ? 'Sin coincidencias.' : 'Aún no hay proveedores. Cárgalos en la ventana «Proveedores» (Nuevo o Importar Excel).'}
+            </div>
+          ) : (
+            <div style={{ maxHeight: 290, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {filtered.map(p => (
+                <button key={p.id} type="button" onClick={() => pick(p)}
+                  style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 6, background: 'transparent', border: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 700, color: C.brand }}>
+                    {p.razonSocial}{!p.activo && <span style={{ color: C.danger, fontWeight: 500 }}> · inactivo</span>}
+                  </div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, marginTop: 2 }}>
+                    {[p.ruc && `RUC ${p.ruc}`, p.nombreComercial].filter(Boolean).join(' · ')}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── FORM SCREEN ──────────────────────────────────────────────────────────────
 function FormOC({ data, setData, onPreview, isMobile }) {
   const cols = isMobile ? 2 : 4
@@ -192,6 +288,7 @@ function FormOC({ data, setData, onPreview, isMobile }) {
   // El botón "Editar" la habilita para corrección manual puntual.
   const [editFecha, setEditFecha] = useState(false)
   const [avisoSel, setAvisoSel]   = useState('')   // aviso efímero al cargar un COD.SELECT.SOLPED
+  const [avisoProv, setAvisoProv] = useState('')   // aviso efímero al seleccionar un proveedor
   const set = (k, v) => setData(d => ({ ...d, [k]: v }))
   const nest = (f, k, v) => setData(d => ({ ...d, [f]: { ...d[f], [k]: v } }))
   const setItem = (id, k, v) => setData(d => ({ ...d, items: d.items.map(it => it.id === id ? { ...it, [k]: v } : it) }))
@@ -218,6 +315,23 @@ function FormOC({ data, setData, onPreview, isMobile }) {
     setTimeout(() => setAvisoSel(a => a.includes(codigo) ? '' : a), 5000)
   }
 
+  // Autorrellena la sección "Proveedor" con el proveedor elegido del maestro.
+  const seleccionarProveedor = p => {
+    setData(d => ({
+      ...d,
+      proveedor: {
+        ruc:         p.ruc || '',
+        razonSocial: p.razonSocial || '',
+        direccion:   p.direccion || '',
+        telefono:    p.contactoTelefono || '',
+        contacto:    p.contactoNombre || '',
+        email:       p.contactoEmail || '',
+      },
+    }))
+    setAvisoProv(`Datos de ${p.razonSocial} cargados.`)
+    setTimeout(() => setAvisoProv(a => a.includes(p.razonSocial) ? '' : a), 5000)
+  }
+
   const valorVenta = data.items.reduce((s, it) => s + (Number(it.cantidad) || 0) * (Number(it.precioUnitario) || 0), 0)
   const igv = valorVenta * 0.18
   const total = valorVenta + igv
@@ -229,6 +343,7 @@ function FormOC({ data, setData, onPreview, isMobile }) {
   }
   const TH = { fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, padding: '0 8px 8px', textAlign: 'left', fontWeight: 500, borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap' }
   const TD = { padding: '6px 8px', verticalAlign: 'top' }
+  const cardStyle = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: isMobile ? 16 : 20, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', gap: 14 }
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '16px 14px' : '20px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -272,23 +387,39 @@ function FormOC({ data, setData, onPreview, isMobile }) {
         </div>
       </Sec>
 
-      {/* EMISOR */}
-      <Sec title="Emisor — empresa que emite la OC" cols={cols}>
-        <Inp label="Nombre empresa" value={data.emisor.nombre} onChange={v => nest('emisor', 'nombre', v)} span={isMobile ? 2 : 2} />
-        <Inp label="RUC" value={data.emisor.ruc} onChange={v => nest('emisor', 'ruc', v)} />
-        <Inp label="Teléfono" value={data.emisor.telefono} onChange={v => nest('emisor', 'telefono', v)} />
-        <Inp label="Dirección" value={data.emisor.direccion} onChange={v => nest('emisor', 'direccion', v)} span={cols} />
-      </Sec>
+      {/* EMISOR + PROVEEDOR — dos tarjetas lado a lado (nuestra empresa ↔ destino) */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 18, alignItems: 'start' }}>
 
-      {/* PROVEEDOR */}
-      <Sec title="Proveedor" cols={cols}>
-        <Inp label="RUC" value={data.proveedor.ruc} onChange={v => nest('proveedor', 'ruc', v)} />
-        <Inp label="Razón Social" value={data.proveedor.razonSocial} onChange={v => nest('proveedor', 'razonSocial', v)} span={isMobile ? 1 : 3} />
-        <Inp label="Dirección" value={data.proveedor.direccion} onChange={v => nest('proveedor', 'direccion', v)} span={cols} />
-        <Inp label="Teléfono" value={data.proveedor.telefono} onChange={v => nest('proveedor', 'telefono', v)} />
-        <Inp label="Contacto" value={data.proveedor.contacto} onChange={v => nest('proveedor', 'contacto', v)} />
-        <Inp label="Email" value={data.proveedor.email} onChange={v => nest('proveedor', 'email', v)} span={isMobile ? 2 : 2} />
-      </Sec>
+        {/* Emisor — nuestra empresa */}
+        <div style={cardStyle}>
+          <CardHead accent={C.brand} title="Emisor" subtitle="Nuestra empresa" />
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
+            <Inp label="Nombre empresa" value={data.emisor.nombre} onChange={v => nest('emisor', 'nombre', v)} span={isMobile ? 1 : 2} />
+            <Inp label="RUC" value={data.emisor.ruc} onChange={v => nest('emisor', 'ruc', v)} />
+            <Inp label="Teléfono" value={data.emisor.telefono} onChange={v => nest('emisor', 'telefono', v)} />
+            <Inp label="Dirección" value={data.emisor.direccion} onChange={v => nest('emisor', 'direccion', v)} span={isMobile ? 1 : 2} />
+          </div>
+        </div>
+
+        {/* Proveedor — destino de la orden */}
+        <div style={cardStyle}>
+          <CardHead accent={C.primary} title="Proveedor" subtitle="Destino de la orden"
+            right={<ProveedorPicker onPick={seleccionarProveedor} isMobile={isMobile} />} />
+          {avisoProv && (
+            <div style={{ padding: '8px 12px', borderRadius: 6, background: `${C.success}15`, border: `1px solid ${C.success}40`, fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.success }}>
+              {avisoProv}
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
+            <Inp label="Razón Social" value={data.proveedor.razonSocial} onChange={v => nest('proveedor', 'razonSocial', v)} span={isMobile ? 1 : 2} />
+            <Inp label="RUC" value={data.proveedor.ruc} onChange={v => nest('proveedor', 'ruc', v)} />
+            <Inp label="Teléfono" value={data.proveedor.telefono} onChange={v => nest('proveedor', 'telefono', v)} />
+            <Inp label="Dirección" value={data.proveedor.direccion} onChange={v => nest('proveedor', 'direccion', v)} span={isMobile ? 1 : 2} />
+            <Inp label="Contacto" value={data.proveedor.contacto} onChange={v => nest('proveedor', 'contacto', v)} />
+            <Inp label="Email" value={data.proveedor.email} onChange={v => nest('proveedor', 'email', v)} />
+          </div>
+        </div>
+      </div>
 
       {/* COMPRADOR */}
       <Sec title="Comprador — responsable interno" cols={isMobile ? 2 : 3}>
@@ -297,19 +428,20 @@ function FormOC({ data, setData, onPreview, isMobile }) {
         <Inp label="Email" value={data.comprador.email} onChange={v => nest('comprador', 'email', v)} span={isMobile ? 2 : 1} />
       </Sec>
 
-      {/* ÍTEMS */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.primary, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Ítems</span>
-          <div style={{ flex: 1, height: 1, background: C.border, minWidth: 20 }} />
-          <SeleccionPicker onLoad={cargarSeleccion} isMobile={isMobile} />
-          <button onClick={addItem}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 14px', borderRadius: 6, background: `${C.primary}18`, border: `1px solid ${C.primary}40`, color: C.primary, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11 }}>
-            + Agregar ítem
-          </button>
-        </div>
+      {/* ÍTEMS — tarjeta */}
+      <div style={cardStyle}>
+        <CardHead accent={C.gold} title="Ítems" subtitle="Líneas de la orden"
+          right={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <SeleccionPicker onLoad={cargarSeleccion} isMobile={isMobile} />
+              <button onClick={addItem}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 6, background: `${C.primary}18`, border: `1px solid ${C.primary}40`, color: C.primary, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                + Agregar ítem
+              </button>
+            </div>
+          } />
         {avisoSel && (
-          <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 6, background: `${C.brand}10`, border: `1px solid ${C.brand}33`, fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.brand }}>
+          <div style={{ padding: '8px 12px', borderRadius: 6, background: `${C.brand}10`, border: `1px solid ${C.brand}33`, fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.brand }}>
             {avisoSel}
           </div>
         )}
@@ -319,7 +451,7 @@ function FormOC({ data, setData, onPreview, isMobile }) {
             {data.items.map((it, idx) => {
               const sub = (Number(it.cantidad) || 0) * (Number(it.precioUnitario) || 0)
               return (
-                <div key={it.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '12px 12px 8px', background: C.card, position: 'relative' }}>
+                <div key={it.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '12px 12px 8px', background: C.bg, position: 'relative' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, color: C.primary }}>Ítem {idx + 1}</span>
                     <button onClick={() => removeItem(it.id)}
