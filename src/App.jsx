@@ -13,6 +13,7 @@ import {
   descargarPlantillaProveedores, descargarPlantillaMateriales,
   parseProveedores, parseMateriales, leerArchivoComoRows,
 } from './maestrosExcel.js'
+import { listarClientes, guardarCliente, eliminarCliente } from './clientesRepo.js'
 import { startProductTour } from './tour.js'
 import { supabase } from './supabaseClient.js'
 import {
@@ -24,6 +25,7 @@ import {
   Bell, Plus, Eye, X, Calendar, CheckCircle, Search,
   ClipboardList, Monitor, Smartphone, MoreHorizontal,
   ChevronRight, Download, Upload, Copy, AlertTriangle, LogOut, HelpCircle,
+  Building2,
 } from 'lucide-react'
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
@@ -301,6 +303,7 @@ function validateProvForm(form) {
 // ─── NAV ──────────────────────────────────────────────────────────────────────
 const NAV = [
   { id: 'dashboard',   label: 'Dashboard',   icon: LayoutDashboard },
+  { id: 'clientes',    label: 'Clientes',    icon: Building2        },
   { id: 'solped',      label: 'SOLPEDs',     icon: ClipboardList   },
   { id: 'proveedores', label: 'Proveedores', icon: Users           },
   { id: 'materiales',  label: 'Materiales',  icon: Package         },
@@ -1971,9 +1974,252 @@ function Acuerdos({ isMobile }) {
   )
 }
 
+// ─── CLIENTES (Maestro de mineras atendidas) ─────────────────────────────────
+const EMPTY_CLI = { razonSocial: '', prefijoOC: '', ruc: '', unidad: '', direccion: '', telefono: '' }
+
+function validateCliForm(form) {
+  const errs = {}
+  if (!form.razonSocial.trim()) errs.razonSocial = 'Obligatorio'
+  if (form.prefijoOC.trim() && !/^\d{2}$/.test(form.prefijoOC.trim())) errs.prefijoOC = 'Deben ser 2 dígitos (ej. 45)'
+  if (form.ruc.trim() && !/^\d{11}$/.test(form.ruc.trim())) errs.ruc = 'Debe tener 11 dígitos'
+  return errs
+}
+
+function Clientes({ isMobile }) {
+  const [lista,    setLista]    = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [error,    setError]    = useState(null)
+  const [toast,    setToast]    = useState(null)
+  const [saving,   setSaving]   = useState(false)
+  const [search,   setSearch]   = useState('')
+  const [modal,    setModal]    = useState(null)
+  const [form,     setForm]     = useState({ ...EMPTY_CLI })
+  const [errores,  setErrores]  = useState({})
+  const [confirmDelete, setConfirmDelete] = useState(null)
+
+  const flash = msg => { setToast(msg); setTimeout(() => setToast(t => t === msg ? null : t), 3500) }
+  const recargar = () =>
+    listarClientes().then(setLista).catch(e => setError(e.message)).finally(() => setLoading(false))
+  useEffect(() => { recargar() }, [])
+
+  const openNuevo  = () => { setForm({ ...EMPTY_CLI }); setErrores({}); setModal('nuevo') }
+  const openEditar = c => {
+    setForm({ razonSocial: c.razonSocial, prefijoOC: c.prefijoOC || '', ruc: c.ruc || '', unidad: c.unidad || '', direccion: c.direccion || '', telefono: c.telefono || '' })
+    setErrores({}); setModal(c.id)
+  }
+  const closeModal = () => { setModal(null); setErrores({}) }
+  const setField = (key, val, errKey) => {
+    setForm(f => ({ ...f, [key]: val }))
+    if (errKey && errores[errKey]) setErrores(e => ({ ...e, [errKey]: undefined }))
+  }
+
+  const handleSave = async () => {
+    const errs = validateCliForm(form)
+    if (Object.keys(errs).length > 0) { setErrores(errs); return }
+    const id = modal === 'nuevo' ? null : modal
+    setSaving(true); setError(null)
+    try {
+      await guardarCliente({ ...form, id })
+      await recargar(); closeModal()
+      flash(id ? 'Cliente actualizado.' : 'Cliente creado.')
+    } catch (e) {
+      const msg = /unique|duplicate/i.test(e.message) ? 'Ese prefijo de OC ya está asignado a otro cliente.' : e.message
+      setError('No se pudo guardar el cliente: ' + msg)
+    } finally { setSaving(false) }
+  }
+
+  const handleDelete = async id => {
+    setConfirmDelete(null)
+    try { await eliminarCliente(id); await recargar(); flash('Cliente eliminado.') }
+    catch (e) { setError('No se pudo eliminar: ' + e.message) }
+  }
+
+  const q = search.toLowerCase()
+  const filtrada = lista.filter(c =>
+    !q || c.razonSocial.toLowerCase().includes(q) || (c.prefijoOC || '').includes(q) || (c.ruc || '').includes(q) || (c.unidad || '').toLowerCase().includes(q)
+  )
+
+  const isEdit  = modal && modal !== 'nuevo'
+  const delCli  = lista.find(c => c.id === confirmDelete)
+  const modalOverlayStyle = isMobile
+    ? { position: 'fixed', inset: 0, zIndex: 50, background: C.bg, display: 'flex', flexDirection: 'column', overflow: 'auto' }
+    : { position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(50,54,58,0.50)' }
+  const modalBoxStyle = isMobile
+    ? { background: C.card, padding: '16px 16px 40px', flex: 1 }
+    : { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, width: 560, maxHeight: '90vh', overflowY: 'auto' }
+
+  return (
+    <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg }}>
+      {/* ── Toolbar ── */}
+      <div style={{ padding: isMobile ? '10px 14px' : '14px 24px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: isMobile ? 1 : 'none' }}>
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={isMobile ? 'Buscar...' : 'Razón social, prefijo, RUC o unidad...'}
+            style={{ paddingLeft: 30, paddingRight: 12, paddingTop: 8, paddingBottom: 8, borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: C.card, border: `1px solid ${C.border}`, color: C.text, outline: 'none', width: isMobile ? '100%' : 320 }} />
+        </div>
+        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, display: isMobile ? 'none' : 'inline' }}>
+          {filtrada.length} cliente{filtrada.length !== 1 ? 's' : ''}
+        </span>
+        <div style={{ marginLeft: 'auto' }}>
+          <button onClick={openNuevo}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isMobile ? '8px 14px' : '8px 18px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <Plus size={13} />{isMobile ? 'Nuevo' : 'Nuevo Cliente'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Content ── */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '0 0 8px' : '0 24px 24px' }}>
+        {loading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50%', fontFamily: 'Inter, sans-serif', fontSize: 13, color: C.muted }}>Cargando clientes…</div>
+        ) : filtrada.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60%', gap: 12 }}>
+            <div style={{ width: 52, height: 52, borderRadius: 12, background: C.card, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Users size={22} style={{ color: C.muted }} />
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 14, color: C.text, marginBottom: 4 }}>
+                {lista.length === 0 ? 'No hay clientes registrados' : 'Sin resultados'}
+              </div>
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
+                {lista.length === 0 ? 'Toca "Nuevo Cliente" para registrar la primera minera.' : 'Ajusta la búsqueda.'}
+              </div>
+            </div>
+          </div>
+        ) : isMobile ? (
+          /* ── Mobile card list ── */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {filtrada.map(c => (
+              <div key={c.id} style={{ padding: '14px 16px', borderBottom: `1px solid ${C.border}30` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                  <div style={{ flex: 1, marginRight: 10 }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: C.text }}>{c.razonSocial}</span>
+                    {c.unidad && <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginTop: 2 }}>{c.unidad}</div>}
+                  </div>
+                  {c.prefijoOC
+                    ? <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontWeight: 700, fontSize: 12, color: C.brand, background: `${C.brand}14`, border: `1px solid ${C.brand}33`, padding: '2px 8px', borderRadius: 6 }}>OC {c.prefijoOC}…</span>
+                    : <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.warn }}>sin prefijo</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginBottom: 10 }}>
+                  {c.ruc && <span>RUC: <b style={{ color: C.text }}>{c.ruc}</b></span>}
+                  {c.telefono && <span>Tel: {c.telefono}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => openEditar(c)} style={{ flex: 1, fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: C.muted, padding: '6px 0', borderRadius: 6, cursor: 'pointer' }}>Editar</button>
+                  <button onClick={() => setConfirmDelete(c.id)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.danger}40`, color: C.danger, padding: '6px 10px', borderRadius: 6, cursor: 'pointer' }}>×</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          /* ── Desktop table ── */
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, marginTop: 16 }}>
+            <thead>
+              <tr style={{ color: C.muted, borderBottom: `1px solid ${C.border}` }}>
+                {['Razón Social', 'Prefijo OC', 'RUC', 'Unidad', 'Teléfono', 'Acciones'].map(h => (
+                  <th key={h} style={{ padding: '0 12px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, letterSpacing: '0.05em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtrada.map(c => (
+                <tr key={c.id} style={{ borderBottom: `1px solid ${C.border}40`, color: C.text }}>
+                  <td style={{ padding: '12px 12px 12px 0', fontWeight: 600 }}>{c.razonSocial}</td>
+                  <td style={{ padding: '12px 12px 12px 0' }}>
+                    {c.prefijoOC
+                      ? <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontWeight: 700, color: C.brand }}>{c.prefijoOC}</span>
+                      : <span style={{ color: C.warn, fontSize: 11 }}>sin asignar</span>}
+                  </td>
+                  <td style={{ padding: '12px 12px 12px 0', color: C.muted }}>{c.ruc || '—'}</td>
+                  <td style={{ padding: '12px 12px 12px 0', color: C.muted }}>{c.unidad || '—'}</td>
+                  <td style={{ padding: '12px 12px 12px 0', color: C.muted }}>{c.telefono || '—'}</td>
+                  <td style={{ padding: '12px 0 12px 0' }}>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => openEditar(c)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.border}`, color: C.muted, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Editar</button>
+                      <button onClick={() => setConfirmDelete(c.id)} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, background: 'none', border: `1px solid ${C.danger}40`, color: C.danger, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Eliminar</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* ── Create / Edit Modal ── */}
+      {modal && (
+        <div style={modalOverlayStyle}>
+          <div style={modalBoxStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 15, color: C.text }}>{isEdit ? 'Editar Cliente' : 'Nuevo Cliente'}</div>
+              <button onClick={closeModal} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} style={{ color: C.muted }} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <FormField label="Razón Social *" error={errores.razonSocial}>
+                <input value={form.razonSocial} onChange={e => setField('razonSocial', e.target.value, 'razonSocial')} placeholder="Nombre legal del cliente (minera)" style={inputStyle(errores.razonSocial)} />
+              </FormField>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <FormField label="Prefijo OC (2 díg.)" error={errores.prefijoOC}>
+                  <input value={form.prefijoOC} onChange={e => setField('prefijoOC', e.target.value.replace(/\D/g, '').slice(0, 2), 'prefijoOC')} placeholder="45" maxLength={2} style={inputStyle(errores.prefijoOC)} />
+                </FormField>
+                <FormField label="Unidad / Mina">
+                  <input value={form.unidad} onChange={e => setField('unidad', e.target.value)} placeholder="Ej: Unidad Cerro Verde" style={inputStyle()} />
+                </FormField>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <FormField label="RUC" error={errores.ruc}>
+                  <input value={form.ruc} onChange={e => setField('ruc', e.target.value.replace(/\D/g, '').slice(0, 11), 'ruc')} placeholder="11 dígitos" maxLength={11} style={inputStyle(errores.ruc)} />
+                </FormField>
+                <FormField label="Teléfono">
+                  <input value={form.telefono} onChange={e => setField('telefono', e.target.value)} placeholder="(01) 000-0000" style={inputStyle()} />
+                </FormField>
+              </div>
+              <FormField label="Dirección">
+                <input value={form.direccion} onChange={e => setField('direccion', e.target.value)} placeholder="Domicilio fiscal" style={inputStyle()} />
+              </FormField>
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 12px', lineHeight: 1.5 }}>
+                El <b style={{ color: C.text }}>prefijo OC</b> encabeza el N° de las Órdenes de Compra del cliente (ej. 45 → 4500000001) y sus datos se autocompletan como <b style={{ color: C.text }}>emisor</b> al generar la OC.
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20, paddingTop: 18, borderTop: `1px solid ${C.border}` }}>
+              <button onClick={closeModal} style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={handleSave} disabled={saving} style={{ padding: '9px 20px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.primary, color: C.bg, border: 'none', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>{saving ? 'Guardando…' : (isEdit ? 'Guardar Cambios' : 'Crear Cliente')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation ── */}
+      {confirmDelete && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(50,54,58,0.52)', padding: isMobile ? '0 20px' : 0 }}>
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 28, width: isMobile ? '100%' : 400 }}>
+            <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 8 }}>Eliminar Cliente</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, marginBottom: 20 }}>
+              ¿Eliminar <b style={{ color: C.text }}>{delCli?.razonSocial}</b>? Esta acción no se puede deshacer. Las SOLPED y OCs ya asociadas conservan su referencia.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button onClick={() => setConfirmDelete(null)} style={{ padding: '8px 18px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={() => handleDelete(confirmDelete)} style={{ padding: '8px 18px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, background: C.danger, color: '#fff', border: 'none', cursor: 'pointer' }}>Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div style={{ position: 'fixed', bottom: 70, left: '50%', transform: 'translateX(-50%)', zIndex: 80, display: 'flex', alignItems: 'center', gap: 8, background: C.danger, color: '#fff', padding: '10px 16px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.25)', maxWidth: '90%' }}>
+          <AlertTriangle size={14} /> {error}
+          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', marginLeft: 6 }}><X size={13} /></button>
+        </div>
+      )}
+      <MaestroToast msg={toast} />
+    </div>
+  )
+}
+
 // ─── VIEWS MAP ────────────────────────────────────────────────────────────────
 const VIEWS = {
   dashboard:   { comp: Dashboard,   title: 'Dashboard Ejecutivo'    },
+  clientes:    { comp: Clientes,    title: 'Maestro de Clientes'    },
   solped:      { comp: Solped,      title: 'Procesamiento SOLPED'   },
   proveedores: { comp: Proveedores, title: 'Maestro de Proveedores' },
   materiales:  { comp: Materiales,  title: 'Maestro de Materiales'  },

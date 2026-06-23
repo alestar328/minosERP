@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { listarSelecciones, itemsDeSeleccion } from './solpedRepo.js'
 import { listarProveedores } from './maestrosRepo.js'
+import { listarClientes, siguienteNumeroOC } from './clientesRepo.js'
+import { emitirOrdenCompra } from './ordenesRepo.js'
 
 const C = {
   bg: '#F5F6F7', card: '#FFFFFF', shell: '#354A5E',
@@ -20,9 +22,17 @@ function fmtDate(s) {
   return `${d}.${m}.${y}`
 }
 
+// Monedas soportadas en la OC (símbolo para totales/impresión).
+const MONEDAS = {
+  USD: { simbolo: 'US $', etiqueta: 'Dólares (USD)' },
+  PEN: { simbolo: 'S/',   etiqueta: 'Soles (PEN)'   },
+  EUR: { simbolo: '€',    etiqueta: 'Euros (EUR)'   },
+}
+const simboloMoneda = m => (MONEDAS[m] || MONEDAS.USD).simbolo
+
 const mkItem = () => ({
   id: crypto.randomUUID(),
-  codigo: '', descripcion: '', especificacion: '',
+  codigo: '', descripcion: '', fabricante: '', modelo: '', especificacion: '',
   unidad: 'UN', cantidad: 1, precioUnitario: 0, fechaEntrega: ''
 })
 
@@ -65,10 +75,13 @@ const EJEMPLO = {
 */
 
 const INIT = () => ({
-  numeroOC: '4500047816',
+  numeroOC: '',
+  cliente: { id: '', prefijoOC: '', razonSocial: '' },
+  moneda: 'USD',
+  terminos: '',
   fechaEmision: today(),
   emisor: { nombre: '', ruc: '', direccion: '', telefono: '' },
-  proveedor: { ruc: '', razonSocial: '', direccion: '', telefono: '', contacto: '', email: '' },
+  proveedor: { id: '', ruc: '', razonSocial: '', direccion: '', telefono: '', contacto: '', email: '' },
   comprador: { nombre: '', telefono: '', email: '' },
   items: [mkItem()],
   autorizadoPor: '',
@@ -169,7 +182,7 @@ function SeleccionPicker({ onLoad, isMobile }) {
     setLoadingId(s.id); setError(null)
     try {
       const items = await itemsDeSeleccion(s.id)
-      onLoad(items, s.codigo)
+      onLoad(items, s)
       setOpen(false); setQ('')
     } catch (e) { setError(e.message) }
     finally { setLoadingId(null) }
@@ -281,6 +294,65 @@ function ProveedorPicker({ onPick, isMobile }) {
   )
 }
 
+// ─── SELECTOR DE CLIENTE (maestro Supabase) ───────────────────────────────────
+// Lista el maestro de clientes (mineras atendidas). Al elegir uno, se autocompleta
+// el EMISOR de la OC con sus datos y se genera el N° de OC con su prefijo.
+function ClientePicker({ clientes, loading, error, onPick, isMobile }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ]       = useState('')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const close = e => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  const filtered = clientes.filter(c => {
+    const t = q.trim().toLowerCase()
+    if (!t) return true
+    return c.razonSocial.toLowerCase().includes(t) || (c.prefijoOC || '').includes(t) || (c.unidad || '').toLowerCase().includes(t)
+  })
+
+  const pick = c => { onPick(c); setOpen(false); setQ('') }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" data-tour="oc-cliente" onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 6, background: C.brand, border: `1px solid ${C.brand}`, color: '#fff', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', boxShadow: `0 1px 2px ${C.brand}55` }}>
+        Seleccionar cliente ▾
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, zIndex: 50, width: isMobile ? 270 : 340, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', padding: 10 }}>
+          <input value={q} onChange={e => setQ(e.target.value)} autoFocus placeholder="Buscar cliente, prefijo o unidad…"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: 6, fontFamily: 'Inter, sans-serif', fontSize: 12, background: `${C.bg}cc`, border: `1px solid ${C.border}`, color: C.text, outline: 'none', marginBottom: 8 }} />
+          {error && <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.danger, padding: '4px 2px 8px' }}>{error}</div>}
+          {loading ? (
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, padding: '10px 2px' }}>Cargando…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, padding: '10px 2px', lineHeight: 1.5 }}>
+              {q ? 'Sin coincidencias.' : 'Aún no hay clientes. Regístralos en la ventana «Clientes».'}
+            </div>
+          ) : (
+            <div style={{ maxHeight: 290, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {filtered.map(c => (
+                <button key={c.id} type="button" onClick={() => pick(c)}
+                  style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 6, background: 'transparent', border: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 700, color: C.brand }}>{c.razonSocial}</div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, marginTop: 2 }}>
+                    {[c.prefijoOC ? `OC ${c.prefijoOC}…` : 'sin prefijo OC', c.unidad].filter(Boolean).join(' · ')}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── FORM SCREEN ──────────────────────────────────────────────────────────────
 function FormOC({ data, setData, onPreview, isMobile }) {
   const cols = isMobile ? 2 : 4
@@ -289,30 +361,73 @@ function FormOC({ data, setData, onPreview, isMobile }) {
   const [editFecha, setEditFecha] = useState(false)
   const [avisoSel, setAvisoSel]   = useState('')   // aviso efímero al cargar un COD.SELECT.SOLPED
   const [avisoProv, setAvisoProv] = useState('')   // aviso efímero al seleccionar un proveedor
+  const [avisoCli, setAvisoCli]   = useState('')   // aviso efímero al seleccionar un cliente
+  const [clientes, setClientes]         = useState([])
+  const [clientesLoading, setClientesLoading] = useState(false)
+  const [clientesError, setClientesError]     = useState(null)
   const set = (k, v) => setData(d => ({ ...d, [k]: v }))
   const nest = (f, k, v) => setData(d => ({ ...d, [f]: { ...d[f], [k]: v } }))
   const setItem = (id, k, v) => setData(d => ({ ...d, items: d.items.map(it => it.id === id ? { ...it, [k]: v } : it) }))
   const addItem = () => setData(d => ({ ...d, items: [...d.items, mkItem()] }))
   const removeItem = id => setData(d => ({ ...d, items: d.items.filter(it => it.id !== id) }))
 
+  // Maestro de clientes (para el selector y para inferir el cliente de una selección).
+  useEffect(() => {
+    setClientesLoading(true); setClientesError(null)
+    listarClientes().then(setClientes).catch(e => setClientesError(e.message)).finally(() => setClientesLoading(false))
+  }, [])
+
+  // Autorrellena el EMISOR con los datos del cliente y genera el N° de OC con su
+  // prefijo (provisional: el correlativo definitivo se reserva al EMITIR).
+  const seleccionarCliente = async c => {
+    setData(d => ({
+      ...d,
+      cliente: { id: c.id, prefijoOC: c.prefijoOC || '', razonSocial: c.razonSocial || '' },
+      emisor: { nombre: c.razonSocial || '', ruc: c.ruc || '', direccion: c.direccion || '', telefono: c.telefono || '' },
+    }))
+    if (!c.prefijoOC) {
+      set('numeroOC', '')
+      setAvisoCli(`${c.razonSocial}: sin prefijo OC. Asígnalo en «Clientes» para generar el número automáticamente.`)
+      setTimeout(() => setAvisoCli(''), 6000)
+      return
+    }
+    try {
+      const numero = await siguienteNumeroOC(c.prefijoOC)
+      set('numeroOC', numero)
+      setAvisoCli(`Emisor de ${c.razonSocial} cargado · N° ${numero} (provisional, se reserva al emitir).`)
+    } catch (e) {
+      setAvisoCli('No se pudo generar el N° de OC: ' + e.message)
+    }
+    setTimeout(() => setAvisoCli(''), 6000)
+  }
+
   // Carga las líneas de una selección (COD.SELECT.SOLPED) en los ítems de la OC.
   // Descarta los ítems vacíos previos (p.ej. la fila inicial en blanco) y añade.
-  const cargarSeleccion = (loaded, codigo) => {
+  // Si la selección trae cliente y aún no hay uno elegido, lo adopta (emisor + N°).
+  const cargarSeleccion = (loaded, sel) => {
     if (!loaded?.length) return
+    const codigo = sel?.codigo || ''
     const nuevos = loaded.map(r => ({
       ...mkItem(),
       codigo:         r.codigo || '',
       descripcion:    r.descripcion || '',
+      fabricante:     r.fabricante || '',
+      modelo:         r.modelo || '',
       especificacion: r.especificacion || '',
       unidad:         r.unidad || 'UN',
       cantidad:       r.cantidad ?? 1,
     }))
     setData(d => {
-      const conDatos = d.items.filter(it => it.codigo || it.descripcion || it.especificacion)
+      const conDatos = d.items.filter(it => it.codigo || it.descripcion || it.especificacion || it.fabricante || it.modelo)
       return { ...d, items: [...conDatos, ...nuevos] }
     })
     setAvisoSel(`Cargados ${nuevos.length} ítem${nuevos.length !== 1 ? 's' : ''} de ${codigo}.`)
     setTimeout(() => setAvisoSel(a => a.includes(codigo) ? '' : a), 5000)
+    // Inferir el cliente que se atiende desde la selección.
+    if (sel?.clienteId && !data.cliente.id) {
+      const c = clientes.find(x => x.id === sel.clienteId)
+      if (c) seleccionarCliente(c)
+    }
   }
 
   // Autorrellena la sección "Proveedor" con el proveedor elegido del maestro.
@@ -320,6 +435,7 @@ function FormOC({ data, setData, onPreview, isMobile }) {
     setData(d => ({
       ...d,
       proveedor: {
+        id:          p.id || '',
         ruc:         p.ruc || '',
         razonSocial: p.razonSocial || '',
         direccion:   p.direccion || '',
@@ -335,6 +451,7 @@ function FormOC({ data, setData, onPreview, isMobile }) {
   const valorVenta = data.items.reduce((s, it) => s + (Number(it.cantidad) || 0) * (Number(it.precioUnitario) || 0), 0)
   const igv = valorVenta * 0.18
   const total = valorVenta + igv
+  const sim = simboloMoneda(data.moneda)
 
   const cellInp = {
     fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.text,
@@ -348,44 +465,42 @@ function FormOC({ data, setData, onPreview, isMobile }) {
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '16px 14px' : '20px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* CABECERA */}
-      {/*
-        ───────────────────────────────────────────────────────────────────────
-        CÓDIGO DE CLIENTE EN EL N° DE OC
-        ───────────────────────────────────────────────────────────────────────
-        Los dos primeros dígitos del N° de Orden de Compra identifican al cliente
-        al que pertenece la orden. Convención provisional:
-            45 -> Cliente 1
-            46 -> Cliente 2
-            47 -> Cliente 3
-            ...
-        Así, con solo mirar el prefijo, se sabe a qué cliente corresponde la OC.
-
-        PENDIENTE (decisión del socio): el factor que determina el código de cada
-        cliente todavía no está definido (¿correlativo?, ¿RUC?, ¿unidad minera?,
-        ¿asignación manual?). Cuando se decida, aquí debe vivir el mapeo
-        cliente -> prefijo y la generación automática del numeroOC. Por ahora el
-        número se ingresa/edita manualmente.
-        ───────────────────────────────────────────────────────────────────────
-      */}
-      <Sec title="Cabecera" cols={cols}>
-        <Inp label="N° Orden de Compra" value={data.numeroOC} onChange={v => set('numeroOC', v)} span={isMobile ? 1 : 2} />
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, gridColumn: `span ${isMobile ? 1 : 2}` }}>
-          <div style={{ flex: 1 }}>
-            <Inp label="Fecha de emisión" value={data.fechaEmision} onChange={v => set('fechaEmision', v)} type="date" disabled={!editFecha} />
-          </div>
-          <button
-            type="button"
-            onClick={() => setEditFecha(e => !e)}
-            title={editFecha ? 'Bloquear fecha' : 'Editar fecha de emisión'}
-            style={{ height: 33, padding: '0 14px', borderRadius: 6, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11, whiteSpace: 'nowrap',
-              background: editFecha ? C.primary : 'none',
-              border: `1px solid ${editFecha ? C.primary : C.border}`,
-              color: editFecha ? C.bg : C.muted }}>
-            {editFecha ? 'Listo' : 'Editar'}
-          </button>
+      {/* CABECERA — cliente atendido, N° de OC (autogenerado: prefijo cliente + correlativo) y fecha */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.primary, textTransform: 'uppercase', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>Cabecera</span>
+          <div style={{ flex: 1, height: 1, background: C.border }} />
+          <ClientePicker clientes={clientes} loading={clientesLoading} error={clientesError} onPick={seleccionarCliente} isMobile={isMobile} />
         </div>
-      </Sec>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 10 }}>
+          <div style={{ gridColumn: `span ${isMobile ? 1 : 1}` }}>
+            <Inp label="Cliente atendido" value={data.cliente.razonSocial} onChange={() => {}} disabled placeholder="Elige un cliente →" />
+          </div>
+          <div style={{ gridColumn: `span ${isMobile ? 1 : 1}` }}>
+            <Inp label="N° Orden de Compra" value={data.numeroOC} onChange={() => {}} disabled placeholder="Se genera al elegir cliente" />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, gridColumn: `span ${isMobile ? 2 : 2}` }}>
+            <div style={{ flex: 1 }}>
+              <Inp label="Fecha de emisión" value={data.fechaEmision} onChange={v => set('fechaEmision', v)} type="date" disabled={!editFecha} />
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditFecha(e => !e)}
+              title={editFecha ? 'Bloquear fecha' : 'Editar fecha de emisión'}
+              style={{ height: 33, padding: '0 14px', borderRadius: 6, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 11, whiteSpace: 'nowrap',
+                background: editFecha ? C.primary : 'none',
+                border: `1px solid ${editFecha ? C.primary : C.border}`,
+                color: editFecha ? C.bg : C.muted }}>
+              {editFecha ? 'Listo' : 'Editar'}
+            </button>
+          </div>
+        </div>
+        {avisoCli && (
+          <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 6, background: `${C.brand}10`, border: `1px solid ${C.brand}33`, fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.brand }}>
+            {avisoCli}
+          </div>
+        )}
+      </div>
 
       {/* EMISOR + PROVEEDOR — dos tarjetas lado a lado (nuestra empresa ↔ destino) */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 18, alignItems: 'start' }}>
@@ -471,6 +586,16 @@ function FormOC({ data, setData, onPreview, isMobile }) {
                     <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>Descripción</span>
                     <input value={it.descripcion} onChange={e => setItem(it.id, 'descripcion', e.target.value)} style={cellInp} />
                   </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>Fabricante</span>
+                      <input value={it.fabricante} onChange={e => setItem(it.id, 'fabricante', e.target.value)} style={cellInp} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>Modelo / N° parte</span>
+                      <input value={it.modelo} onChange={e => setItem(it.id, 'modelo', e.target.value)} style={cellInp} />
+                    </label>
+                  </div>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 8 }}>
                     <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase' }}>Especificación</span>
                     <textarea value={it.especificacion} onChange={e => setItem(it.id, 'especificacion', e.target.value)} rows={2} style={{ ...cellInp, resize: 'none' }} />
@@ -497,19 +622,21 @@ function FormOC({ data, setData, onPreview, isMobile }) {
               )
             })}
             <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>Valor Venta: <strong style={{ color: C.text }}>{valorVenta.toFixed(2)}</strong></div>
-              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>IGV 18%: {igv.toFixed(2)}</div>
-              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: C.primary }}>TOTAL: {total.toFixed(2)}</div>
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>Valor Venta: <strong style={{ color: C.text }}>{sim} {valorVenta.toFixed(2)}</strong></div>
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>IGV 18%: {sim} {igv.toFixed(2)}</div>
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: C.primary }}>TOTAL: {sim} {total.toFixed(2)}</div>
             </div>
           </div>
         ) : (
           /* ── Desktop: full table ── */
           <div style={{ overflowX: 'auto', borderRadius: 8, border: `1px solid ${C.border}` }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, minWidth: 900 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, minWidth: 1080 }}>
               <thead>
                 <tr>
                   <th style={{ ...TH, width: 80 }}>Código</th>
-                  <th style={{ ...TH, width: 190 }}>Descripción</th>
+                  <th style={{ ...TH, width: 180 }}>Descripción</th>
+                  <th style={{ ...TH, width: 120 }}>Fabricante</th>
+                  <th style={{ ...TH, width: 120 }}>Modelo / N° parte</th>
                   <th style={TH}>Especificación técnica</th>
                   <th style={{ ...TH, width: 55 }}>UM</th>
                   <th style={{ ...TH, width: 75 }}>Cant.</th>
@@ -526,6 +653,8 @@ function FormOC({ data, setData, onPreview, isMobile }) {
                     <tr key={it.id} style={{ borderTop: `1px solid ${C.border}` }}>
                       <td style={TD}><input value={it.codigo} onChange={e => setItem(it.id, 'codigo', e.target.value)} style={cellInp} /></td>
                       <td style={TD}><input value={it.descripcion} onChange={e => setItem(it.id, 'descripcion', e.target.value)} style={cellInp} /></td>
+                      <td style={TD}><input value={it.fabricante} onChange={e => setItem(it.id, 'fabricante', e.target.value)} style={cellInp} /></td>
+                      <td style={TD}><input value={it.modelo} onChange={e => setItem(it.id, 'modelo', e.target.value)} style={cellInp} /></td>
                       <td style={TD}><textarea value={it.especificacion} onChange={e => setItem(it.id, 'especificacion', e.target.value)} rows={2} style={{ ...cellInp, resize: 'vertical', minHeight: 52 }} /></td>
                       <td style={TD}><input value={it.unidad} onChange={e => setItem(it.id, 'unidad', e.target.value)} style={cellInp} /></td>
                       <td style={TD}><input type="number" min="0" value={it.cantidad} onChange={e => setItem(it.id, 'cantidad', e.target.value)} style={{ ...cellInp, textAlign: 'right' }} /></td>
@@ -542,21 +671,21 @@ function FormOC({ data, setData, onPreview, isMobile }) {
               </tbody>
               <tfoot>
                 <tr style={{ borderTop: `2px solid ${C.border}` }}>
-                  <td colSpan={5} />
+                  <td colSpan={7} />
                   <td style={{ padding: '7px 8px', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'right' }}>Valor Venta</td>
-                  <td style={{ padding: '7px 8px', textAlign: 'right', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text }}>{valorVenta.toFixed(2)}</td>
+                  <td style={{ padding: '7px 8px', textAlign: 'right', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text }}>{sim} {valorVenta.toFixed(2)}</td>
                   <td colSpan={2} />
                 </tr>
                 <tr>
-                  <td colSpan={5} />
+                  <td colSpan={7} />
                   <td style={{ padding: '4px 8px', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, textAlign: 'right' }}>IGV 18%</td>
-                  <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>{igv.toFixed(2)}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>{sim} {igv.toFixed(2)}</td>
                   <td colSpan={2} />
                 </tr>
                 <tr style={{ borderTop: `1px solid ${C.border}` }}>
-                  <td colSpan={5} />
+                  <td colSpan={7} />
                   <td style={{ padding: '7px 8px', fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 700, color: C.primary, textAlign: 'right' }}>TOTAL</td>
-                  <td style={{ padding: '7px 8px', textAlign: 'right', fontFamily: 'Inter', fontSize: 15, fontWeight: 900, color: C.primary }}>{total.toFixed(2)}</td>
+                  <td style={{ padding: '7px 8px', textAlign: 'right', fontFamily: 'Inter', fontSize: 15, fontWeight: 900, color: C.primary }}>{sim} {total.toFixed(2)}</td>
                   <td colSpan={2} />
                 </tr>
               </tfoot>
@@ -567,12 +696,30 @@ function FormOC({ data, setData, onPreview, isMobile }) {
 
       {/* CONDICIONES */}
       <Sec title="Condiciones" cols={cols}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>Moneda</span>
+          <select value={data.moneda} onChange={e => set('moneda', e.target.value)}
+            style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, background: C.card, border: `1px solid ${C.borderInput}`, borderRadius: 6, padding: '8px 10px', outline: 'none', width: '100%', boxSizing: 'border-box', cursor: 'pointer' }}>
+            {Object.entries(MONEDAS).map(([k, v]) => <option key={k} value={k}>{v.etiqueta}</option>)}
+          </select>
+        </label>
         <Inp label="Plazo de entrega (días)" value={data.plazoEntrega} onChange={v => set('plazoEntrega', v)} type="number" />
         <Inp label="Lugar de entrega" value={data.lugarEntrega} onChange={v => set('lugarEntrega', v)} />
         <Inp label="Forma de pago (días)" value={data.formaPago} onChange={v => set('formaPago', v)} type="number" />
         <Inp label="Autorizado por" value={data.autorizadoPor} onChange={v => set('autorizadoPor', v)} />
         <Inp label="Fecha de autorización" value={data.fechaAutorizacion} onChange={v => set('fechaAutorizacion', v)} type="date" span={isMobile ? 2 : 2} />
       </Sec>
+
+      {/* TÉRMINOS Y CONDICIONES — texto libre que se imprime en la OC */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.primary, textTransform: 'uppercase', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>Términos y condiciones</span>
+          <div style={{ flex: 1, height: 1, background: C.border }} />
+        </div>
+        <textarea value={data.terminos} onChange={e => set('terminos', e.target.value)} rows={5}
+          placeholder="Pega o escribe aquí los términos y condiciones de la orden (garantías, penalidades, lugar de facturación, etc.)…"
+          style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, background: C.card, border: `1px solid ${C.borderInput}`, borderRadius: 6, padding: '10px 12px', outline: 'none', width: '100%', boxSizing: 'border-box', resize: 'vertical', minHeight: 90, lineHeight: 1.5 }} />
+      </div>
 
       {/* ACTION BUTTONS */}
       <div style={{ display: 'flex', gap: 10, paddingBottom: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
@@ -592,11 +739,12 @@ function FormOC({ data, setData, onPreview, isMobile }) {
 }
 
 // ─── DOCUMENT PREVIEW ─────────────────────────────────────────────────────────
-function DocOC({ data, onBack }) {
+function DocOC({ data, onBack, onEmit, emitiendo, emitError, emitida, onNueva }) {
   const { items = [] } = data
   const valorVenta = items.reduce((s, it) => s + (Number(it.cantidad) || 0) * (Number(it.precioUnitario) || 0), 0)
   const igv = valorVenta * 0.18
   const total = valorVenta + igv
+  const sim = simboloMoneda(data.moneda)
 
   const MONO = { fontFamily: "'Courier New', Courier, monospace" }
   const B1 = '1px solid #333'
@@ -609,15 +757,38 @@ function DocOC({ data, onBack }) {
     <div style={{ flex: 1, overflowY: 'auto', background: '#c8c8c8', padding: '16px 10px' }}>
 
       {/* FLOATING CONTROLS — hidden on print */}
-      <div className="no-print" style={{ display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-        <button onClick={onBack}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 8, background: C.card, border: `1px solid ${C.border}`, color: C.text, fontFamily: 'Inter, sans-serif', fontSize: 12, cursor: 'pointer' }}>
-          ← Volver al formulario
-        </button>
-        <button onClick={() => window.print()}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 8, background: C.primary, border: 'none', color: C.bg, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-          Imprimir / Guardar PDF
-        </button>
+      <div className="no-print" style={{ maxWidth: 900, margin: '0 auto 16px' }}>
+        {emitida && (
+          <div style={{ marginBottom: 10, padding: '10px 14px', borderRadius: 8, background: `${C.success}15`, border: `1px solid ${C.success}40`, fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.success, fontWeight: 600, textAlign: 'center' }}>
+            ✓ Orden de Compra <b>{data.numeroOC}</b> emitida y guardada.
+          </div>
+        )}
+        {emitError && (
+          <div style={{ marginBottom: 10, padding: '10px 14px', borderRadius: 8, background: `${C.danger}12`, border: `1px solid ${C.danger}40`, fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.danger, textAlign: 'center' }}>
+            {emitError}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button onClick={onBack}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 8, background: C.card, border: `1px solid ${C.border}`, color: C.text, fontFamily: 'Inter, sans-serif', fontSize: 12, cursor: 'pointer' }}>
+            ← Volver al formulario
+          </button>
+          <button onClick={() => window.print()}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 8, background: emitida ? C.primary : C.card, border: emitida ? 'none' : `1px solid ${C.border}`, color: emitida ? C.bg : C.text, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: emitida ? 700 : 400, cursor: 'pointer' }}>
+            Imprimir / Guardar PDF
+          </button>
+          {emitida ? (
+            <button onClick={onNueva}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 8, background: C.card, border: `1px solid ${C.border}`, color: C.brand, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              + Nueva orden
+            </button>
+          ) : (
+            <button onClick={onEmit} disabled={emitiendo}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 26px', borderRadius: 8, background: C.primary, border: 'none', color: C.bg, fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 700, cursor: emitiendo ? 'default' : 'pointer', opacity: emitiendo ? 0.7 : 1 }}>
+              {emitiendo ? 'Emitiendo…' : 'Emitir orden'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* DOCUMENT */}
@@ -696,6 +867,13 @@ function DocOC({ data, onBack }) {
                   <td style={td()}>{it.codigo}</td>
                   <td style={td()}>
                     <div style={{ fontWeight: 500 }}>{it.descripcion}</div>
+                    {(it.fabricante || it.modelo) && (
+                      <div style={{ fontSize: 9, color: '#333', marginTop: 2 }}>
+                        {it.fabricante && <span>FABRICANTE: {it.fabricante}</span>}
+                        {it.fabricante && it.modelo && <span>&nbsp;&nbsp;·&nbsp;&nbsp;</span>}
+                        {it.modelo && <span>MODELO/N° PARTE: {it.modelo}</span>}
+                      </div>
+                    )}
                     {it.especificacion && (
                       <div style={{ fontSize: 9, color: '#555', marginTop: 3, lineHeight: 1.4 }}>{it.especificacion}</div>
                     )}
@@ -716,15 +894,15 @@ function DocOC({ data, onBack }) {
                   <table style={{ borderCollapse: 'collapse', ...MONO, fontSize: 11 }}>
                     <tbody>
                       <tr>
-                        <td style={{ padding: '2px 16px 2px 0', textAlign: 'right' }}>VALOR VENTA&nbsp;&nbsp;US $</td>
+                        <td style={{ padding: '2px 16px 2px 0', textAlign: 'right' }}>VALOR VENTA&nbsp;&nbsp;{sim}</td>
                         <td style={{ padding: '2px 0', textAlign: 'right', minWidth: 80 }}>{valorVenta.toFixed(2)}</td>
                       </tr>
                       <tr>
-                        <td style={{ padding: '2px 16px 2px 0', textAlign: 'right' }}>VALOR IGV</td>
+                        <td style={{ padding: '2px 16px 2px 0', textAlign: 'right' }}>VALOR IGV&nbsp;&nbsp;{sim}</td>
                         <td style={{ padding: '2px 0', textAlign: 'right' }}>{igv.toFixed(2)}</td>
                       </tr>
                       <tr style={{ borderTop: '1px solid #999' }}>
-                        <td style={{ padding: '3px 16px 2px 0', textAlign: 'right', fontWeight: 'bold' }}>TOTAL</td>
+                        <td style={{ padding: '3px 16px 2px 0', textAlign: 'right', fontWeight: 'bold' }}>TOTAL&nbsp;&nbsp;{sim}</td>
                         <td style={{ padding: '3px 0 2px', textAlign: 'right', fontWeight: 'bold' }}>{total.toFixed(2)}</td>
                       </tr>
                     </tbody>
@@ -746,6 +924,16 @@ function DocOC({ data, onBack }) {
               </td>
             </tr>
 
+            {/* ── TÉRMINOS Y CONDICIONES ── */}
+            {data.terminos?.trim() && (
+              <tr>
+                <td colSpan={8} style={{ border: B1, padding: '7px 12px' }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: 3 }}>TÉRMINOS Y CONDICIONES</div>
+                  <div style={{ whiteSpace: 'pre-wrap', fontSize: 10, lineHeight: 1.5 }}>{data.terminos.trim()}</div>
+                </td>
+              </tr>
+            )}
+
           </tbody>
         </table>
       </div>
@@ -757,7 +945,28 @@ function DocOC({ data, onBack }) {
 export default function OrdenCompra({ isMobile }) {
   const [screen, setScreen] = useState('form')
   const [data, setData] = useState(INIT)
+  const [emitiendo, setEmitiendo] = useState(false)
+  const [emitError, setEmitError] = useState(null)
+  const [emitida, setEmitida]     = useState(false)   // true tras persistir la OC
 
-  if (screen === 'preview') return <DocOC data={data} onBack={() => setScreen('form')} />
+  // Emite (persiste) la OC: reserva el correlativo y guarda cabecera + líneas.
+  const emitir = async () => {
+    setEmitiendo(true); setEmitError(null)
+    try {
+      const res = await emitirOrdenCompra(data)
+      setData(d => ({ ...d, numeroOC: res.numero }))
+      setEmitida(true)
+    } catch (e) {
+      setEmitError(e.message)
+    } finally { setEmitiendo(false) }
+  }
+
+  const nuevaOrden = () => { setData(INIT()); setEmitida(false); setEmitError(null); setScreen('form') }
+
+  if (screen === 'preview') return (
+    <DocOC data={data}
+      onBack={() => { setEmitError(null); setScreen('form') }}
+      onEmit={emitir} emitiendo={emitiendo} emitError={emitError} emitida={emitida} onNueva={nuevaOrden} />
+  )
   return <FormOC data={data} setData={setData} onPreview={() => setScreen('preview')} isMobile={isMobile} />
 }

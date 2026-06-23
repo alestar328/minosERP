@@ -15,7 +15,7 @@ const MARCADOR = 'ID ERP (no editar)'
 
 const COLUMNAS = [
   'N° SOLPED', 'Posición',
-  'Código', 'Descripción', 'Grupo / Familia', 'Cantidad', 'Unidad',
+  'Código', 'Descripción', 'Fabricante', 'Modelo / N° parte', 'Grupo / Familia', 'Cantidad', 'Unidad',
   'Categoría (ERP)', 'Categoría corregida', 'Proveedor último pedido',
   MARCADOR,
 ]
@@ -23,12 +23,12 @@ const COLUMNAS = [
 // Construye y descarga el Excel procesado del documento.
 export function exportarDocumentoExcel({ numero, archivo, items }) {
   // Fila 0: cabeceras agrupadas (combinadas). Fila 1: columnas reales.
-  const grupoRow = ['Identificación', '', 'Características del material', '', '', '', '', '', '', '', '']
+  const grupoRow = ['Identificación', '', 'Características del material', '', '', '', '', '', '', '', '', '', '']
   const aoa = [grupoRow, COLUMNAS]
   for (const it of items) {
     aoa.push([
       it.solped || numero || '', it.posicion || '',
-      it.codigoMaterial || '', it.textoBreve || '', it.grupoArticulos || '',
+      it.codigoMaterial || '', it.textoBreve || '', it.fabricante || '', it.modelo || '', it.grupoArticulos || '',
       it.cantidad ?? '', it.unidad || '',
       it.categoria || 'No categoria', '', it.proveedorUltimo || '',
       it.id || '',
@@ -37,10 +37,10 @@ export function exportarDocumentoExcel({ numero, archivo, items }) {
   const ws = XLSX.utils.aoa_to_sheet(aoa)
   ws['!merges'] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },    // "Identificación" sobre N° SOLPED + Posición
-    { s: { r: 0, c: 2 }, e: { r: 0, c: 10 } },   // "Características del material" sobre el resto
+    { s: { r: 0, c: 2 }, e: { r: 0, c: 12 } },   // "Características del material" sobre el resto
   ]
   ws['!cols'] = [
-    { wch: 14 }, { wch: 9 }, { wch: 14 }, { wch: 42 }, { wch: 18 }, { wch: 9 },
+    { wch: 14 }, { wch: 9 }, { wch: 14 }, { wch: 42 }, { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 9 },
     { wch: 7 }, { wch: 16 }, { wch: 18 }, { wch: 24 }, { wch: 38 },
   ]
   const wb = XLSX.utils.book_new()

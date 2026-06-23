@@ -125,15 +125,21 @@ async function findOrCreateCliente(nombre) {
 export async function listarDocumentos() {
   const { data, error } = await supabase
     .from('solpeds')
-    .select('id, numero, archivo_nombre, fecha_carga, estado, cliente:clientes(id, razon_social), solped_items(categoria_id, activo)')
+    .select('id, numero, archivo_nombre, fecha_carga, estado, cliente:clientes(id, razon_social), solped_items(categoria_id, activo, numero_solped)')
     .order('fecha_carga', { ascending: false })
   if (error) throw error
   return (data || []).map(d => {
     const activos = (d.solped_items || []).filter(i => i.activo)
     const sinCat = activos.filter(i => !i.categoria_id).length
+    // Todos los N° SOLPED que contiene el documento (uno puede agrupar varios).
+    // Permite buscarlo por cualquiera, no solo por el `numero` (el más frecuente).
+    const numeros = [...new Set(
+      activos.map(i => (i.numero_solped || '').trim()).filter(Boolean)
+    )]
     return {
       id:             d.id,
       numero:         d.numero,
+      numeros,
       archivo:        d.archivo_nombre || '',
       cliente:        d.cliente?.razon_social || '—',
       clienteId:      d.cliente?.id || null,
@@ -313,13 +319,14 @@ export async function generarSeleccion({ etiqueta, clienteId, itemIds }) {
 export async function listarSelecciones() {
   const { data, error } = await supabase
     .from('solped_selecciones')
-    .select('id, codigo, etiqueta, created_at, cliente:clientes(razon_social), solped_seleccion_items(id)')
+    .select('id, codigo, etiqueta, created_at, cliente_id, cliente:clientes(razon_social), solped_seleccion_items(id)')
     .order('created_at', { ascending: false })
   if (error) throw error
   return (data || []).map(s => ({
     id:        s.id,
     codigo:    s.codigo,
     etiqueta:  s.etiqueta || '',
+    clienteId: s.cliente_id || null,
     cliente:   s.cliente?.razon_social || '',
     createdAt: s.created_at,
     nItems:    (s.solped_seleccion_items || []).length,
@@ -327,11 +334,11 @@ export async function listarSelecciones() {
 }
 
 // Líneas de una selección, mapeadas a la forma de ítem de Orden de Compra:
-// código, descripción (texto breve), especificación (= modelo), cantidad y unidad.
+// código, descripción (texto breve), fabricante, modelo / N° parte, cantidad y unidad.
 export async function itemsDeSeleccion(seleccionId) {
   const { data, error } = await supabase
     .from('solped_seleccion_items')
-    .select('solped_item:solped_items(id, codigo_material, texto_breve, modelo, unidad, cantidad)')
+    .select('solped_item:solped_items(id, codigo_material, texto_breve, fabricante, modelo, unidad, cantidad)')
     .eq('seleccion_id', seleccionId)
   if (error) throw error
   return (data || [])
@@ -339,7 +346,9 @@ export async function itemsDeSeleccion(seleccionId) {
     .map(i => ({
       codigo:         i.codigo_material || '',
       descripcion:    i.texto_breve || '',
-      especificacion: i.modelo || '',
+      fabricante:     i.fabricante || '',
+      modelo:         i.modelo || '',
+      especificacion: '',
       unidad:         i.unidad || 'UN',
       cantidad:       Number(i.cantidad) || 1,
     }))

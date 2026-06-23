@@ -71,6 +71,24 @@ export const CATEGORIAS_SOLPED = [
       { campo: 'textoBreve', tipo: 'contains', valores: ['TUBERÍA','TUBERIA','HDPE','CONCRETO','CEMENTO','ACERO','ESTRUCTURA','SALA ELÉCTRICA','SALA ELECTRICA'] },
     ],
   },
+  {
+    nombre: 'Metalmecánica', bg: '#6E8CA0', fg: '#1B3A4B',
+    reglas: [
+      { campo: 'textoBreve', tipo: 'contains', valores: ['PERNO','TUERCA','ARANDELA','TORNILLO','PLANCHA','PLATINA','ANGULO','ÁNGULO','VIGA','BARRA','EJE','BOCINA','ELECTRODO','SOLDADURA','MAESTRANZA','MECANIZADO','ESPARRAGO','ESPÁRRAGO'] },
+    ],
+  },
+  {
+    nombre: 'Ferretería', bg: '#C8A45C', fg: '#5A3D0E',
+    reglas: [
+      { campo: 'textoBreve', tipo: 'contains', valores: ['FERRETERIA','FERRETERÍA','CLAVO','ALAMBRE','CANDADO','BISAGRA','SILICONA','PEGAMENTO','LIJA','BROCA','DISCO DE CORTE','CINTA AISLANTE','WAIPE','ESCOBA','CADENA','GRILLETE','TEFLON','TEFLÓN'] },
+    ],
+  },
+  {
+    nombre: 'Merchandising', bg: '#E08AC0', fg: '#6E1B52',
+    reglas: [
+      { campo: 'textoBreve', tipo: 'contains', valores: ['MERCHANDISING','POLO','GORRA','LLAVERO','TOMATODO','LAPICERO','AGENDA','SOUVENIR','BANNER','GIGANTOGRAFIA','GIGANTOGRAFÍA','STICKER','TAZA','MUG'] },
+    ],
+  },
   { nombre: 'Otros', bg: '#D3D1C7', fg: '#444441', reglas: [] },
   // Categoría vacía: SOLPEDs que conceptualmente no tienen categoría (sin clasificar).
   // Es el destino por defecto de clasificarItem cuando ninguna regla coincide.
@@ -89,6 +107,9 @@ const SINONIMOS_GRUPO = {
   'Lubricantes':     ['lubricante', 'lubricantes', 'lubricacion', 'grasa', 'aceite', 'lubricant'],
   'Explosivos':      ['explosivo', 'explosivos', 'voladura', 'blasting'],
   'Construcción':    ['construccion', 'obra civil', 'civil', 'estructura', 'tuberia'],
+  'Metalmecánica':   ['metalmecanica', 'metal mecanica', 'maestranza', 'mecanizado', 'fabricacion metalica'],
+  'Ferretería':      ['ferreteria', 'ferreteria industrial', 'hardware'],
+  'Merchandising':   ['merchandising', 'publicidad', 'marketing', 'souvenir', 'articulos promocionales'],
   'Otros':           ['varios', 'miscelaneo', 'miscelaneos'],
 }
 
@@ -645,6 +666,7 @@ const isoCorta = iso => {
 }
 
 function DocumentosLista({ docs, loading, onOpen, onDelete, isMobile }) {
+  const [q, setQ] = useState('')
   if (loading) return (
     <div style={{ width: '100%', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, textAlign: 'center' }}>
       Cargando documentos…
@@ -657,16 +679,42 @@ function DocumentosLista({ docs, loading, onOpen, onDelete, isMobile }) {
       <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginTop: 2 }}>Carga un Excel arriba y aparecerá aquí para abrirlo, revisarlo o exportarlo.</div>
     </div>
   )
+  const lc = s => (s || '').toString().toLowerCase()
+  const term = lc(q).trim()
+  const filtrados = !term ? docs : docs.filter(d =>
+    lc(d.numero).includes(term) ||
+    lc(d.cliente).includes(term) ||
+    lc(d.archivo).includes(term) ||
+    (d.numeros || []).some(n => lc(n).includes(term))
+  )
   return (
     <div data-tour="solped-docs" style={{ width: '100%', background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
-      <div style={{ padding: '12px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ padding: '12px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <FileSpreadsheet size={16} style={{ color: C.brand }} />
         <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: C.text }}>Documentos Solped cargados</span>
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>({docs.length})</span>
+        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>
+          ({term ? `${filtrados.length} de ${docs.length}` : docs.length})
+        </span>
+        <div style={{ position: 'relative', marginLeft: 'auto', flex: isMobile ? '1 1 100%' : '0 1 280px' }}>
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted }} />
+          <input value={q} onChange={e => setQ(e.target.value)}
+            placeholder="Buscar por N° SOLPED, cliente o archivo…"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '7px 30px 7px 30px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, outline: 'none' }} />
+          {q && (
+            <button onClick={() => setQ('')} title="Limpiar búsqueda"
+              style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', display: 'inline-flex', padding: 3, border: 'none', background: 'transparent', color: C.muted, cursor: 'pointer' }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
       </div>
-      {isMobile ? (
+      {filtrados.length === 0 ? (
+        <div style={{ padding: '28px 18px', textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
+          Ningún documento coincide con «{q}».
+        </div>
+      ) : isMobile ? (
         <div style={{ maxHeight: 420, overflow: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {docs.map(d => {
+          {filtrados.map(d => {
             const est = ESTADO_DOC[d.estado] || { bg: C.border, fg: C.muted }
             const Campo = ({ label, value, color }) => (
               <div>
@@ -681,6 +729,11 @@ function DocumentosLista({ docs, loading, onOpen, onDelete, isMobile }) {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>N° SOLPED</div>
                     <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: C.text, marginTop: 1 }}>{d.numero}</div>
+                    {(d.numeros?.length || 0) > 1 && (
+                      <div title={d.numeros.join(', ')} style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.brand, fontWeight: 600, marginTop: 1 }}>
+                        +{d.numeros.length - 1} N° SOLPED
+                      </div>
+                    )}
                     {d.archivo && <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.archivo}</div>}
                   </div>
                   <span style={{ padding: '3px 10px', borderRadius: 10, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: est.bg, color: est.fg, whiteSpace: 'nowrap', flexShrink: 0 }}>{d.estado}</span>
@@ -726,12 +779,18 @@ function DocumentosLista({ docs, loading, onOpen, onDelete, isMobile }) {
             </tr>
           </thead>
           <tbody>
-            {docs.map(d => {
+            {filtrados.map(d => {
               const est = ESTADO_DOC[d.estado] || { bg: C.border, fg: C.muted }
               return (
                 <tr key={d.id} style={{ borderTop: `1px solid ${C.border}` }}>
                   <td style={{ padding: '9px 14px', fontWeight: 600, color: C.text }}>
                     {d.numero}
+                    {(d.numeros?.length || 0) > 1 && (
+                      <div title={`N° SOLPED en el documento:\n${d.numeros.join('\n')}`}
+                        style={{ fontSize: 10, color: C.brand, fontWeight: 600, cursor: 'help' }}>
+                        +{d.numeros.length - 1} N° SOLPED
+                      </div>
+                    )}
                     {d.archivo && <div style={{ fontSize: 10, color: C.muted, fontWeight: 400 }}>{d.archivo}</div>}
                   </td>
                   {!isMobile && <td style={{ padding: '9px 14px', color: C.text }}>{d.cliente}</td>}
@@ -1599,13 +1658,14 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
       ) : (
       /* ── Table ────────────────────────────────────────────────────────── */
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <table style={{ width: '100%', minWidth: isMobile ? 380 : 1060, borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, tableLayout: isMobile ? 'auto' : 'fixed' }}>
+        <table style={{ width: '100%', minWidth: isMobile ? 380 : 1140, borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, tableLayout: isMobile ? 'auto' : 'fixed' }}>
           {!isMobile && (
             <colgroup>
               <col style={{ width: 38  }} />
               <col style={{ width: 112 }} />
               <col />
-              <col style={{ width: 150 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 130 }} />
               <col style={{ width: 148 }} />
               <col style={{ width: 90  }} />
               <col style={{ width: 118 }} />
@@ -1628,7 +1688,8 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
               </th>
               {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>SOLPED</th>}
               <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em' }}>Descripción</th>
-              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }} title="Fabricante y modelo / N° de parte tokenizados del «Texto pedido de compra»">Fab. / Modelo</th>}
+              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }} title="Fabricante tokenizado del «Texto pedido de compra»">Fabricante</th>}
+              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }} title="Modelo / N° de parte tokenizado del «Texto pedido de compra»">Modelo / N° parte</th>}
               <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Categoría</th>
               <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Cant.</th>
               {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Valor</th>}
@@ -1641,7 +1702,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
           <tbody>
             {filtrada.length === 0 ? (
               <tr>
-                <td colSpan={isMobile ? 5 : 11} style={{ padding: 48, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
+                <td colSpan={isMobile ? 5 : 12} style={{ padding: 48, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted }}>
                   Sin resultados para los filtros aplicados.
                 </td>
               </tr>
@@ -1678,17 +1739,19 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
 
                 {!isMobile && (
                   <td style={{ padding: '7px 8px 7px 0', overflow: 'hidden' }}
-                      title={it.textoPedido || (it.fabricante || it.modelo ? `${it.fabricante}${it.modelo ? ' · ' + it.modelo : ''}` : 'Sin «Texto pedido de compra»')}>
-                    {it.fabricante || it.modelo ? (
-                      <>
-                        <div style={{ color: C.text, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {it.fabricante || <span style={{ color: C.muted, fontWeight: 400 }}>—</span>}
-                        </div>
-                        {it.modelo && <div style={{ fontSize: 10, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.modelo}</div>}
-                      </>
-                    ) : (
-                      <span style={{ color: C.muted }}>—</span>
-                    )}
+                      title={it.fabricante || it.textoPedido || 'Sin fabricante en el «Texto pedido de compra»'}>
+                    <div style={{ color: it.fabricante ? C.text : C.muted, fontWeight: it.fabricante ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {it.fabricante || '—'}
+                    </div>
+                  </td>
+                )}
+
+                {!isMobile && (
+                  <td style={{ padding: '7px 8px 7px 0', overflow: 'hidden' }}
+                      title={it.modelo || it.textoPedido || 'Sin modelo / N° de parte en el «Texto pedido de compra»'}>
+                    <div style={{ color: it.modelo ? C.text : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {it.modelo || '—'}
+                    </div>
                   </td>
                 )}
 
