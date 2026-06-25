@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { Upload, FileSpreadsheet, RefreshCw, Search, AlertCircle, Pencil, ChevronDown, ChevronRight, ChevronLeft, X, ArrowRight, Table, LayoutGrid, Download, CheckCircle2, Trash2, ClipboardList } from 'lucide-react'
 import SolpedAgrupado from './SolpedAgrupado.jsx'
-import { listarDocumentos, cargarDocumento, guardarDocumento, actualizarCategoriaItem, categoriaPorCodigo, solpedIdDeItem, eliminarDocumento, generarSeleccion } from './solpedRepo.js'
+import { listarDocumentos, cargarDocumento, guardarDocumento, actualizarCategoriaItem, categoriaPorCodigo, solpedIdDeItem, eliminarDocumento, generarSeleccion, agregarASeleccion, eliminarSeleccion, quitarItemDeSeleccion, seleccionesDeDocumento } from './solpedRepo.js'
 import { codigosExistentes, codigosIgnorados, ignorarCodigos, importarMateriales } from './maestrosRepo.js'
 import { exportarDocumentoExcel, esExcelERP, leerCorrecciones } from './solpedExcel.js'
 
@@ -166,20 +166,26 @@ export function clasificarItem(item, categorias = CATEGORIAS_SOLPED) {
 // edición, y (2) plantillas guardadas por cliente. Todo local y explicable.
 
 // Campos canónicos del sistema. obligatorio ⇒ sin él no se puede importar.
+// `label` = el MISMO texto que la cabecera de la columna donde aterriza el dato en
+// la tabla del SOLPED (coherencia mapeo ↔ tabla). Donde la columna es derivada o
+// combinada se indica entre paréntesis (Texto pedido → Fabricante/Modelo;
+// Fecha → Urgencia).
+// El ORDEN de esta lista = el orden de las columnas en la tabla del SOLPED
+// (izquierda→derecha; los subcampos van justo tras su columna principal).
 const CAMPOS = [
-  { campo: 'textoBreve',      label: 'Descripción del material', obligatorio: true  },
-  { campo: 'textoPedido',     label: 'Texto pedido de compra',   obligatorio: false },
-  { campo: 'grupoArticulos',  label: 'Grupo / familia',          obligatorio: false },
-  { campo: 'codigoMaterial',  label: 'Código de material',       obligatorio: false },
-  { campo: 'cantidad',        label: 'Cantidad',                 obligatorio: false },
-  { campo: 'unidad',          label: 'Unidad de medida',         obligatorio: false },
-  { campo: 'valorTotal',      label: 'Valor total',              obligatorio: false },
-  { campo: 'moneda',          label: 'Moneda',                   obligatorio: false },
-  { campo: 'solped',          label: 'N° SOLPED / OC',           obligatorio: false },
-  { campo: 'posicion',        label: 'Posición / ítem',          obligatorio: false },
-  { campo: 'solicitante',     label: 'Solicitante',              obligatorio: false },
-  { campo: 'areaNecesidad',   label: 'Área / centro',            obligatorio: false },
-  { campo: 'fechaLiberacion', label: 'Fecha',                    obligatorio: false },
+  { campo: 'solped',          label: 'SOLPED',               obligatorio: false },
+  { campo: 'posicion',        label: 'Posición',             obligatorio: false },
+  { campo: 'textoBreve',      label: 'Descripción',          obligatorio: true  },
+  { campo: 'codigoMaterial',  label: 'Código',               obligatorio: false },
+  { campo: 'textoPedido',     label: 'Fabricante / Modelo',  obligatorio: false },
+  { campo: 'grupoArticulos',  label: 'Grupo / familia',      obligatorio: false },
+  { campo: 'cantidad',        label: 'Cant.',                obligatorio: false },
+  { campo: 'unidad',          label: 'Unidad',               obligatorio: false },
+  { campo: 'valorTotal',      label: 'Valor',                obligatorio: false },
+  { campo: 'moneda',          label: 'Moneda',               obligatorio: false },
+  { campo: 'fechaLiberacion', label: 'Urgencia (fecha)',     obligatorio: false },
+  { campo: 'solicitante',     label: 'Solicitante',          obligatorio: false },
+  { campo: 'areaNecesidad',   label: 'Área',                 obligatorio: false },
 ]
 
 // Sinónimos de cabecera por campo (ya normalizados: minúsculas, sin tildes).
@@ -200,7 +206,7 @@ const ALIAS = {
 }
 
 const UMBRAL = 0.78
-const HOY_DEMO = new Date(2025, 5, 7) // fecha de referencia del demo
+const HOY_REF = new Date() // fecha de referencia para la urgencia (hoy)
 
 const norm = s => (s ?? '').toString().toLowerCase()
   .normalize('NFD').replace(/\p{Diacritic}/gu, '')   // quita tildes
@@ -289,7 +295,7 @@ function diasDesdeFecha(str) {
   const y = m[3].length === 2 ? '20' + m[3] : m[3]
   const dt = new Date(Number(y), Number(m[2]) - 1, Number(m[1]))
   if (isNaN(dt)) return 0
-  const diff = Math.round((HOY_DEMO - dt) / 86400000)
+  const diff = Math.round((HOY_REF - dt) / 86400000)
   return diff > 0 ? diff : 0
 }
 
@@ -545,6 +551,144 @@ function BulkCatMenu({ count, onPick }) {
         </div>
       )}
     </>
+  )
+}
+
+// ── Menú «Generar orden»: nueva COD.SELECT.SOLPED o agregar a una existente ─────
+function GenerarOrdenMenu({ generando, selecciones, onNueva, onAgregar }) {
+  const [open, setOpen] = useState(false)
+  const [pos,  setPos]  = useState({ top: 0, left: 0 })
+  const btnRef  = useRef(null)
+  const dropRef = useRef(null)
+
+  const handleClick = () => {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 4, left: r.left })
+    }
+    setOpen(v => !v)
+  }
+  useEffect(() => {
+    if (!open) return
+    const close = e => {
+      if (dropRef.current?.contains(e.target) || btnRef.current?.contains(e.target)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  return (
+    <>
+      <button ref={btnRef} onClick={handleClick} disabled={generando}
+        title="Agrupa las filas seleccionadas en una COD.SELECT.SOLPED (nueva o existente)"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: generando ? C.border : C.brand, color: '#fff', border: 'none', cursor: generando ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+        {generando
+          ? <><RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> Generando…</>
+          : <><ClipboardList size={12} /> Generar orden <ChevronDown size={11} style={{ opacity: 0.8 }} /></>}
+      </button>
+
+      {open && (
+        <div ref={dropRef}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999, background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: 6, minWidth: 232, maxWidth: 300, boxShadow: '0 8px 28px rgba(0,0,0,0.35)' }}>
+          <button onClick={() => { onNueva(); setOpen(false) }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 10px', borderRadius: 4, background: 'transparent', border: 'none', cursor: 'pointer' }}>
+            <ClipboardList size={13} style={{ color: C.brand, flexShrink: 0 }} />
+            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.text, fontWeight: 600 }}>Nueva COD.SELECT.SOLPED</span>
+          </button>
+          {selecciones.length > 0 && (
+            <>
+              <div style={{ borderTop: `1px solid ${C.border}`, margin: '6px 0' }} />
+              <div style={{ padding: '2px 10px 6px', fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Agregar a una existente
+              </div>
+              <div style={{ maxHeight: 220, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {selecciones.map(s => (
+                  <button key={s.id} onClick={() => { onAgregar(s); setOpen(false) }}
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '100%', padding: '6px 10px', borderRadius: 4, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.brand, fontWeight: 700 }}>{s.codigo}</span>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted }}>
+                      {s.items.length} ítem{s.items.length !== 1 ? 's' : ''}{s.etiqueta ? ` · ${s.etiqueta}` : ''}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── Vista «Tratadas»: agrupaciones COD.SELECT.SOLPED del documento + eliminar ───
+function TratadasView({ selecciones, isMobile, onEliminar, onQuitarItem }) {
+  const [confirmId, setConfirmId] = useState(null)
+
+  if (!selecciones.length) return (
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+      <div style={{ textAlign: 'center', maxWidth: 400 }}>
+        <CheckCircle2 size={30} style={{ color: C.border, marginBottom: 10 }} />
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>Aún no hay agrupaciones</div>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+          Selecciona filas en «Tabla» y pulsa «Generar orden» para crear una COD.SELECT.SOLPED. Aquí verás cada agrupación con sus ítems y podrás eliminarla (sus líneas volverán a «sin tratar»).
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={{ flex: 1, overflow: 'auto', padding: isMobile ? '12px 4px' : 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {selecciones.map(s => (
+        <div key={s.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.card }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: `${C.brand}0a`, borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: C.brand }}>{s.codigo}</span>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>
+              {s.items.length} ítem{s.items.length !== 1 ? 's' : ''}{s.etiqueta ? ` · ${s.etiqueta}` : ''}{s.createdAt ? ` · ${fmtFechaCarga(s.createdAt)}` : ''}
+            </span>
+            <div style={{ marginLeft: 'auto' }}>
+              {confirmId === s.id ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.danger }}>¿Eliminar?</span>
+                  <button onClick={() => { onEliminar(s); setConfirmId(null) }}
+                    style={{ padding: '4px 10px', borderRadius: 6, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: C.danger, color: '#fff', border: 'none', cursor: 'pointer' }}>Sí, eliminar</button>
+                  <button onClick={() => setConfirmId(null)}
+                    style={{ padding: '4px 10px', borderRadius: 6, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer' }}>Cancelar</button>
+                </span>
+              ) : (
+                <button onClick={() => setConfirmId(s.id)} title="Eliminar esta agrupación COD.SELECT.SOLPED"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.danger, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                  <Trash2 size={12} /> {isMobile ? '' : 'Eliminar'}
+                </button>
+              )}
+            </div>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12 }}>
+            <tbody>
+              {s.items.map((it, i) => (
+                <tr key={it.id} style={{ borderTop: i ? `1px solid ${C.border}40` : 'none' }}>
+                  <td style={{ padding: '7px 14px', color: C.text }}>
+                    <div style={{ fontWeight: 500 }}>{it.descripcion || '—'}</div>
+                    <div style={{ fontSize: 10, color: C.muted }}>
+                      {[it.codigo, it.fabricante, it.modelo].filter(Boolean).join(' · ') || '—'}
+                    </div>
+                  </td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', whiteSpace: 'nowrap', color: C.text }}>
+                    {(Number(it.cantidad) || 0).toLocaleString('es-PE')} <span style={{ fontSize: 10, color: C.muted }}>{it.unidad}</span>
+                  </td>
+                  <td style={{ padding: '7px 12px 7px 0', textAlign: 'right', width: 36 }}>
+                    <button onClick={() => onQuitarItem(s, it)} title="Quitar este ítem de la agrupación (vuelve a «sin tratar»)"
+                      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 5, borderRadius: 6, background: 'transparent', color: C.danger, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                      <X size={13} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -931,6 +1075,25 @@ function MaterialesNuevosModal({ items, isMobile, saving, onClose, onConfirm, on
 }
 
 // ── Main SOLPED component ─────────────────────────────────────────────────────
+// ── Columnas de la tabla SOLPED (desktop) ───────────────────────────────────────
+// El orden es el de la tabla. `w` = ancho inicial (px), `min` = ancho mínimo al
+// redimensionar (tipo Excel, solo desktop). `mobile` = visible en la vista móvil.
+const COLS_SOLPED = [
+  { key: 'check',  label: '',                  w: 38,  min: 38,  mobile: true,  resize: false, align: 'center' },
+  { key: 'solped', label: 'SOLPED',            w: 112, min: 70,  mobile: false },
+  { key: 'desc',   label: 'Descripción',       w: 300, min: 140, mobile: true  },
+  { key: 'fab',    label: 'Fabricante',        w: 120, min: 70,  mobile: false, title: 'Fabricante tokenizado del «Texto pedido de compra»' },
+  { key: 'modelo', label: 'Modelo / N° parte', w: 130, min: 70,  mobile: false, title: 'Modelo / N° de parte tokenizado del «Texto pedido de compra»' },
+  { key: 'cat',    label: 'Categoría',         w: 148, min: 90,  mobile: true  },
+  { key: 'cant',   label: 'Cant.',             w: 90,  min: 56,  mobile: true  },
+  { key: 'valor',  label: 'Valor',             w: 118, min: 70,  mobile: false },
+  { key: 'urg',    label: 'Urgencia',          w: 90,  min: 56,  mobile: true  },
+  { key: 'solic',  label: 'Solicitante',       w: 108, min: 70,  mobile: false },
+  { key: 'area',   label: 'Área',              w: 130, min: 70,  mobile: false },
+  { key: 'prov',   label: 'Prov. últ. pedido', w: 150, min: 80,  mobile: false, title: 'Último proveedor al que se compró este material (lo calcula el ERP por código)' },
+]
+const COLW_LS_KEY = 'minprocure_solped_colw'
+
 export default function Solped({ isMobile = false, focusDocId = null }) {
   const [items,     setItems]     = useState([])
   const [loading,   setLoading]   = useState(false)
@@ -955,6 +1118,36 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   const [generando,   setGenerando]   = useState(false)  // generando COD.SELECT.SOLPED
   const [matNuevos,   setMatNuevos]   = useState(null)   // materiales nuevos por confirmar (modal)
   const [guardandoMat, setGuardandoMat] = useState(false)
+  const [selecciones, setSelecciones] = useState([])     // agrupaciones COD.SELECT.SOLPED del doc abierto
+
+  // Anchos de columna (desktop): redimensionables tipo Excel y persistidos.
+  const [colW, setColW] = useState(() => {
+    const def = COLS_SOLPED.map(c => c.w)
+    try {
+      const saved = JSON.parse(localStorage.getItem(COLW_LS_KEY) || 'null')
+      if (Array.isArray(saved) && saved.length === def.length)
+        return saved.map((w, i) => Math.max(COLS_SOLPED[i].min, Number(w) || def[i]))
+    } catch { /* sin anchos guardados */ }
+    return def
+  })
+  // Arrastre del borde derecho de una cabecera para cambiar el ancho.
+  const startResize = (idx, e) => {
+    e.preventDefault(); e.stopPropagation()
+    const startX = e.clientX, startW = colW[idx], min = COLS_SOLPED[idx].min
+    const onMove = ev => {
+      const next = Math.max(min, startW + (ev.clientX - startX))
+      setColW(prev => { const n = [...prev]; n[idx] = next; return n })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''; document.body.style.userSelect = ''
+      setColW(prev => { try { localStorage.setItem(COLW_LS_KEY, JSON.stringify(prev)) } catch { /* sin persistencia */ } return prev })
+    }
+    document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   const loaded = items.length > 0
   const fileInputRef = useRef(null)
@@ -966,6 +1159,12 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   // Refresca la lista de Documentos Solped desde Supabase.
   const refrescarDocumentos = () =>
     listarDocumentos().then(setDocumentos).catch(e => setError(e.message)).finally(() => setDocsLoading(false))
+
+  // Refresca las agrupaciones COD.SELECT.SOLPED del documento abierto (líneas "tratadas").
+  const refrescarSelecciones = (id = docActivo) => {
+    if (!id) { setSelecciones([]); return Promise.resolve() }
+    return seleccionesDeDocumento(id).then(setSelecciones).catch(e => setError(e.message))
+  }
 
   useEffect(() => { refrescarDocumentos() }, [])
   useEffect(() => { refrescarPlantillas() }, [])
@@ -999,7 +1198,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
       const doc = await cargarDocumento(id)   // recarga con ids reales de BD + reconciliación aplicada
       setItems(doc.items); setFilename(fileName); setDocActivo(id)
       setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
-      refrescarDocumentos()
+      refrescarDocumentos(); refrescarSelecciones(id)
       await detectarMaterialesNuevos(parsed)   // propone alta de códigos aún no catalogados
     } catch (e) {
       setError('No se pudo guardar el documento: ' + e.message)
@@ -1077,6 +1276,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
       const doc = await cargarDocumento(id)
       setItems(doc.items); setFilename(doc.archivo || doc.numero); setDocActivo(id)
       setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
+      setVista('tabla'); refrescarSelecciones(id)
     } catch (e) {
       setError('No se pudo abrir el documento: ' + e.message)
     } finally {
@@ -1099,6 +1299,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
         const doc = await cargarDocumento(targetId)
         setItems(doc.items); setFilename(doc.archivo || doc.numero); setDocActivo(targetId)
         setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
+        refrescarSelecciones(targetId)
       }
       refrescarDocumentos()
       flashAviso(`${correcciones.length} corrección${correcciones.length !== 1 ? 'es' : ''} aplicada${correcciones.length !== 1 ? 's' : ''} desde el Excel.`)
@@ -1118,7 +1319,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     try {
       await eliminarDocumento(doc.id)
       if (docActivo === doc.id) {   // estaba abierto → volver a la lista
-        setItems([]); setFilename(null); setDocActivo(null)
+        setItems([]); setFilename(null); setDocActivo(null); setSelecciones([]); setVista('tabla')
         setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
       }
       refrescarDocumentos()
@@ -1138,8 +1339,12 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   }
 
   // Punto de entrada común: filas crudas → detecta cabecera → plantilla o modal.
-  const ingestarRows = (rows, fileName) => {
-    if (!rows || rows.length < 2) { setError('El archivo no tiene filas suficientes.'); return }
+  const ingestarRows = (rawRows, fileName) => {
+    // El rango usado de la hoja (!ref) suele venir inflado con filas/celdas vacías
+    // de formato. Las descartamos para que el conteo y la ingesta reflejen las
+    // filas reales (no "datos inventados") antes de detectar cabecera.
+    const rows = (rawRows || []).filter(r => (r || []).some(c => String(c ?? '').trim() !== ''))
+    if (rows.length < 2) { setError('El archivo no tiene filas suficientes.'); return }
     if (esExcelERP(rows)) { importarCorrecciones(rows); return }  // round-trip: Excel del ERP
     const headerIdx = detectarCabecera(rows)
     const headerRow = rows[headerIdx] || []
@@ -1170,7 +1375,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
   }
 
   const reset = () => {
-    setItems([]); setFilename(null); setError(null); setMapeo(null); setDocActivo(null)
+    setItems([]); setFilename(null); setError(null); setMapeo(null); setDocActivo(null); setSelecciones([]); setVista('tabla')
     setSelected(new Set()); setFiltroCats([]); setFiltroUrg('todos'); setSearch('')
     refrescarDocumentos()
   }
@@ -1195,10 +1400,12 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     flashAviso(`${ids.length} ítem${ids.length !== 1 ? 's' : ''} movido${ids.length !== 1 ? 's' : ''} a «${newCat}».`)
   }
 
-  // «Generar orden»: agrupa las filas seleccionadas en una selección con código
-  // interno COD.SELECT.SOLPED, buscable luego en la ventana Órdenes → Items.
+  // Ids de las filas seleccionadas (solo de las "sin tratar" visibles).
+  const idsSeleccionados = () => filtrada.filter(it => selected.has(it.id)).map(it => it.id)
+
+  // «Generar orden» → NUEVA agrupación COD.SELECT.SOLPED con las filas marcadas.
   const generarOrden = async () => {
-    const ids = filtrada.filter(it => selected.has(it.id)).map(it => it.id)
+    const ids = idsSeleccionados()
     if (!ids.length) return
     if (!docActivo) { setError('Abre o guarda el documento antes de generar una orden.'); return }
     setGenerando(true); setError(null)
@@ -1210,7 +1417,8 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
         itemIds:   ids,
       })
       setSelected(new Set())
-      flashAviso(`Selección creada: ${codigo} (${nItems} ítem${nItems !== 1 ? 's' : ''}). Búscala en Órdenes → Items.`)
+      flashAviso(`Selección creada: ${codigo} (${nItems} ítem${nItems !== 1 ? 's' : ''}). Ver pestaña «Tratadas».`)
+      await refrescarSelecciones()
     } catch (e) {
       setError('No se pudo generar la orden: ' + e.message)
     } finally {
@@ -1218,8 +1426,61 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
     }
   }
 
+  // Agrega las filas marcadas a una agrupación COD.SELECT.SOLPED existente.
+  const agregarAOrden = async sel => {
+    const ids = idsSeleccionados()
+    if (!ids.length || !sel) return
+    setGenerando(true); setError(null)
+    try {
+      const n = await agregarASeleccion(sel.id, ids)
+      setSelected(new Set())
+      flashAviso(n ? `${n} ítem${n !== 1 ? 's' : ''} agregado${n !== 1 ? 's' : ''} a ${sel.codigo}.` : `Esas líneas ya estaban en ${sel.codigo}.`)
+      await refrescarSelecciones()
+    } catch (e) {
+      setError('No se pudo agregar a la agrupación: ' + e.message)
+    } finally {
+      setGenerando(false)
+    }
+  }
+
+  // Elimina una agrupación COD.SELECT.SOLPED (sus líneas vuelven a «sin tratar»).
+  const eliminarOrden = async sel => {
+    setError(null)
+    try {
+      await eliminarSeleccion(sel.id)
+      flashAviso(`Agrupación ${sel.codigo} eliminada.`)
+      await refrescarSelecciones()
+    } catch (e) {
+      setError('No se pudo eliminar la agrupación: ' + e.message)
+    }
+  }
+
+  // Quita un ítem de una agrupación (vuelve a «sin tratar»). Si era el último,
+  // elimina la agrupación entera para no dejarla vacía.
+  const quitarItemOrden = async (sel, item) => {
+    setError(null)
+    try {
+      if ((sel.items || []).length <= 1) {
+        await eliminarSeleccion(sel.id)
+        flashAviso(`Agrupación ${sel.codigo} eliminada (se quitó su último ítem).`)
+      } else {
+        await quitarItemDeSeleccion(sel.id, item.id)
+        flashAviso(`Ítem quitado de ${sel.codigo}.`)
+      }
+      await refrescarSelecciones()
+    } catch (e) {
+      setError('No se pudo quitar el ítem: ' + e.message)
+    }
+  }
+
+  // ── Tratadas vs sin tratar ──────────────────────────────────────────────────
+  // Las líneas que ya están en una agrupación COD.SELECT.SOLPED ("tratadas") se
+  // sacan de la tabla principal y de la vista Agrupar; viven en la pestaña «Tratadas».
+  const treatedIds = new Set(selecciones.flatMap(s => (s.items || []).map(i => i.id)))
+  const sinTratar  = items.filter(it => !treatedIds.has(it.id))
+
   // ── Filtering ─────────────────────────────────────────────────────────────
-  const filtrada = items.filter(it => {
+  const filtrada = sinTratar.filter(it => {
     const q = search.toLowerCase()
     const mSearch = !q || it.textoBreve.toLowerCase().includes(q) || it.solped.includes(q) || it.solicitante.toLowerCase().includes(q)
     const mCat    = filtroCats.length === 0 || filtroCats.includes(it.categoria)
@@ -1481,19 +1742,15 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
                   {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
                 </span>
                 <BulkCatMenu count={selected.size} onPick={editCategoriaMasiva} />
-                <button onClick={generarOrden} disabled={generando}
-                  title="Agrupa las filas seleccionadas con un código COD.SELECT.SOLPED para usarlo en Órdenes"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: generando ? C.border : C.brand, color: '#fff', border: 'none', cursor: generando ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
-                  {generando ? <><RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> Generando…</> : <><ClipboardList size={12} /> Generar orden</>}
-                </button>
+                <GenerarOrdenMenu generando={generando} selecciones={selecciones} onNueva={generarOrden} onAgregar={agregarAOrden} />
               </>
             )}
             <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: C.muted }}>
-              {filtrada.length} de {items.length} ítems
+              {filtrada.length} de {sinTratar.length} ítems
             </span>
-            {/* Toggle Tabla / Agrupar y asignar proveedor */}
+            {/* Toggle Sin tratar (Tabla / Agrupar) / Tratadas */}
             <div style={{ display: 'flex', borderRadius: 8, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-              {[['tabla', Table, isMobile ? '' : 'Tabla'], ['agrupado', LayoutGrid, isMobile ? '' : 'Agrupar y asignar']].map(([val, Icon, lbl]) => {
+              {[['tabla', Table, isMobile ? '' : 'Tabla'], ['agrupado', LayoutGrid, isMobile ? '' : 'Agrupar y asignar'], ['tratadas', CheckCircle2, `${isMobile ? '' : 'Tratadas '}(${selecciones.length})`]].map(([val, Icon, lbl]) => {
                 const on = vista === val
                 return (
                   <button key={val} onClick={() => setVista(val)}
@@ -1524,7 +1781,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
           {CATEGORIAS_SOLPED.map(cat => {
             // «No categoria» siempre disponible (para filtrar y reasignar en masa);
             // el resto de chips solo si hay ítems en esa categoría.
-            if (cat.nombre !== 'No categoria' && !items.some(it => it.categoria === cat.nombre)) return null
+            if (cat.nombre !== 'No categoria' && !sinTratar.some(it => it.categoria === cat.nombre)) return null
             const active = filtroCats.includes(cat.nombre)
             return (
               <button key={cat.nombre} onClick={() => toggleCatFilter(cat.nombre)}
@@ -1570,12 +1827,12 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
               {/* Toggle Tabla / Agrupar + acciones (icono) */}
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <div style={{ display: 'flex', borderRadius: 8, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-                  {[['tabla', Table], ['agrupado', LayoutGrid]].map(([val, Icon]) => {
+                  {[['tabla', Table, 'Tabla'], ['agrupado', LayoutGrid, 'Agrupar y asignar'], ['tratadas', CheckCircle2, `Tratadas (${selecciones.length})`]].map(([val, Icon, ttl]) => {
                     const on = vista === val
                     return (
-                      <button key={val} onClick={() => setVista(val)} title={val === 'tabla' ? 'Tabla' : 'Agrupar y asignar'}
-                        style={{ display: 'flex', alignItems: 'center', padding: '7px 12px', background: on ? C.primary : C.card, color: on ? '#fff' : C.muted, border: 'none', cursor: 'pointer' }}>
-                        <Icon size={14} />
+                      <button key={val} onClick={() => setVista(val)} title={ttl}
+                        style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 12px', background: on ? C.primary : C.card, color: on ? '#fff' : C.muted, border: 'none', cursor: 'pointer' }}>
+                        <Icon size={14} />{val === 'tratadas' && <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: on ? 600 : 400 }}>{selecciones.length}</span>}
                       </button>
                     )
                   })}
@@ -1603,11 +1860,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
                     {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
                   </span>
                   <BulkCatMenu count={selected.size} onPick={editCategoriaMasiva} />
-                  <button onClick={generarOrden} disabled={generando}
-                    title="Generar COD.SELECT.SOLPED"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: generando ? C.border : C.brand, color: '#fff', border: 'none', cursor: generando ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
-                    {generando ? <><RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> Generando…</> : <><ClipboardList size={12} /> Generar orden</>}
-                  </button>
+                  <GenerarOrdenMenu generando={generando} selecciones={selecciones} onNueva={generarOrden} onAgregar={agregarAOrden} />
                 </div>
               )}
 
@@ -1620,7 +1873,7 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
                 {CATEGORIAS_SOLPED.map(cat => {
                   // «No categoria» siempre disponible (para filtrar y reasignar en masa);
             // el resto de chips solo si hay ítems en esa categoría.
-            if (cat.nombre !== 'No categoria' && !items.some(it => it.categoria === cat.nombre)) return null
+            if (cat.nombre !== 'No categoria' && !sinTratar.some(it => it.categoria === cat.nombre)) return null
                   const active = filtroCats.includes(cat.nombre)
                   return (
                     <button key={cat.nombre} onClick={() => toggleCatFilter(cat.nombre)}
@@ -1652,51 +1905,42 @@ export default function Solped({ isMobile = false, focusDocId = null }) {
         </div>
       )}
 
-      {/* ── Vista agrupada (agrupar por categoría + asignar proveedor) ────── */}
-      {vista === 'agrupado' ? (
+      {/* ── Vista «Tratadas» (agrupaciones COD.SELECT.SOLPED del documento) ─── */}
+      {vista === 'tratadas' ? (
+        <TratadasView selecciones={selecciones} isMobile={isMobile} onEliminar={eliminarOrden} onQuitarItem={quitarItemOrden} />
+      ) : vista === 'agrupado' ? (
         <SolpedAgrupado items={filtrada} isMobile={isMobile} onEditCategoria={editCategoria} />
       ) : (
       /* ── Table ────────────────────────────────────────────────────────── */
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <table style={{ width: '100%', minWidth: isMobile ? 380 : 1140, borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, tableLayout: isMobile ? 'auto' : 'fixed' }}>
+        <table style={{ width: isMobile ? '100%' : colW.reduce((a, b) => a + b, 0), minWidth: isMobile ? 380 : colW.reduce((a, b) => a + b, 0), borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif', fontSize: 12, tableLayout: isMobile ? 'auto' : 'fixed' }}>
           {!isMobile && (
             <colgroup>
-              <col style={{ width: 38  }} />
-              <col style={{ width: 112 }} />
-              <col />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 130 }} />
-              <col style={{ width: 148 }} />
-              <col style={{ width: 90  }} />
-              <col style={{ width: 118 }} />
-              <col style={{ width: 90  }} />
-              <col style={{ width: 108 }} />
-              <col style={{ width: 130 }} />
-              <col style={{ width: 150 }} />
+              {COLS_SOLPED.map((c, i) => <col key={c.key} style={{ width: colW[i] }} />)}
             </colgroup>
           )}
           <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: C.card, boxShadow: `0 1px 0 ${C.border}` }}>
             <tr>
-              <th style={{ padding: '10px 0 10px 12px', textAlign: 'center', width: 34 }}>
-                <input
-                  type="checkbox"
-                  ref={el => { if (el) el.indeterminate = someSelected && !allSelected }}
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  style={{ cursor: 'pointer', accentColor: C.primary }}
-                />
-              </th>
-              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>SOLPED</th>}
-              <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em' }}>Descripción</th>
-              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }} title="Fabricante tokenizado del «Texto pedido de compra»">Fabricante</th>}
-              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }} title="Modelo / N° de parte tokenizado del «Texto pedido de compra»">Modelo / N° parte</th>}
-              <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Categoría</th>
-              <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Cant.</th>
-              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Valor</th>}
-              <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Urgencia</th>
-              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Solicitante</th>}
-              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Área</th>}
-              {!isMobile && <th style={{ padding: '10px 8px 10px 0', textAlign: 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap' }} title="Último proveedor al que se compró este material (lo calcula el ERP por código)">Prov. últ. pedido</th>}
+              {COLS_SOLPED.filter(c => isMobile ? c.mobile : true).map(c => {
+                const i = COLS_SOLPED.indexOf(c)
+                return (
+                  <th key={c.key} title={c.title}
+                    style={{ padding: c.key === 'check' ? '10px 0 10px 12px' : '10px 8px 10px 0', textAlign: c.align || 'left', fontWeight: 500, fontSize: 11, color: C.muted, letterSpacing: '0.05em', whiteSpace: 'nowrap', position: 'relative' }}>
+                    {c.key === 'check' ? (
+                      <input type="checkbox"
+                        ref={el => { if (el) el.indeterminate = someSelected && !allSelected }}
+                        checked={allSelected} onChange={toggleAll}
+                        style={{ cursor: 'pointer', accentColor: C.primary }} />
+                    ) : c.label}
+                    {!isMobile && c.resize !== false && (
+                      <span onMouseDown={e => startResize(i, e)} title="Arrastra para redimensionar"
+                        style={{ position: 'absolute', top: 0, right: -1, height: '100%', width: 9, cursor: 'col-resize', userSelect: 'none', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <span style={{ width: 2, height: '55%', background: C.border }} />
+                      </span>
+                    )}
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>

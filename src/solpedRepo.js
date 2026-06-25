@@ -354,6 +354,66 @@ export async function itemsDeSeleccion(seleccionId) {
     }))
 }
 
+// Elimina una agrupación COD.SELECT.SOLPED. Sus `solped_seleccion_items` cascadean
+// (FK ON DELETE CASCADE), por lo que las líneas vuelven a estar "sin tratar".
+export async function eliminarSeleccion(seleccionId) {
+  const { error } = await supabase.from('solped_selecciones').delete().eq('id', seleccionId)
+  if (error) throw error
+}
+
+// Agrega líneas a una agrupación existente. Idempotente: la restricción
+// UNIQUE (seleccion_id, solped_item_id) descarta duplicados. Devuelve nº de nuevas.
+export async function agregarASeleccion(seleccionId, itemIds) {
+  if (!seleccionId) throw new Error('Falta la selección de destino.')
+  const ids = [...new Set((itemIds || []).filter(Boolean))]
+  if (!ids.length) throw new Error('No hay líneas seleccionadas.')
+  const rows = ids.map(id => ({ seleccion_id: seleccionId, solped_item_id: id }))
+  const { data, error } = await supabase
+    .from('solped_seleccion_items')
+    .upsert(rows, { onConflict: 'seleccion_id,solped_item_id', ignoreDuplicates: true })
+    .select('id')
+  if (error) throw error
+  return (data || []).length
+}
+
+// Quita UNA línea de una agrupación (la línea vuelve a estar "sin tratar").
+export async function quitarItemDeSeleccion(seleccionId, itemId) {
+  const { error } = await supabase
+    .from('solped_seleccion_items')
+    .delete()
+    .eq('seleccion_id', seleccionId)
+    .eq('solped_item_id', itemId)
+  if (error) throw error
+}
+
+// Agrupaciones COD.SELECT.SOLPED cuyas líneas pertenecen a un documento (solped).
+// Separa "tratadas" de "sin tratar" en la ventana SOLPED y alimenta el menú
+// "Agregar a…". Devuelve [{ id, codigo, etiqueta, createdAt, items:[{...}] }].
+export async function seleccionesDeDocumento(solpedId) {
+  if (!solpedId) return []
+  const { data, error } = await supabase
+    .from('solped_seleccion_items')
+    .select('seleccion:solped_selecciones(id, codigo, etiqueta, created_at), solped_item:solped_items!inner(id, solped_id, codigo_material, texto_breve, fabricante, modelo, unidad, cantidad)')
+    .eq('solped_item.solped_id', solpedId)
+  if (error) throw error
+  const map = new Map()
+  for (const r of data || []) {
+    const s = r.seleccion, it = r.solped_item
+    if (!s || !it) continue
+    if (!map.has(s.id)) map.set(s.id, { id: s.id, codigo: s.codigo, etiqueta: s.etiqueta || '', createdAt: s.created_at, items: [] })
+    map.get(s.id).items.push({
+      id:          it.id,
+      codigo:      it.codigo_material || '',
+      descripcion: it.texto_breve || '',
+      fabricante:  it.fabricante || '',
+      modelo:      it.modelo || '',
+      cantidad:    Number(it.cantidad) || 0,
+      unidad:      it.unidad || '',
+    })
+  }
+  return [...map.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+}
+
 // ── Persistir una corrección manual de categoría sobre un item ──────────────────
 export async function actualizarCategoriaItem(itemId, nombreCat) {
   const maps = await getCatMaps()

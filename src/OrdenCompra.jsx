@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { listarSelecciones, itemsDeSeleccion } from './solpedRepo.js'
+import { listarSelecciones, itemsDeSeleccion, eliminarSeleccion } from './solpedRepo.js'
 import { listarProveedores } from './maestrosRepo.js'
 import { listarClientes, siguienteNumeroOC } from './clientesRepo.js'
 import { emitirOrdenCompra } from './ordenesRepo.js'
@@ -157,6 +157,8 @@ function SeleccionPicker({ onLoad, isMobile }) {
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState(null)
   const [loadingId, setLoadingId] = useState(null)
+  const [confirmDel, setConfirmDel] = useState(null) // id pendiente de confirmar borrado
+  const [deletingId, setDeletingId] = useState(null)
   const ref = useRef(null)
 
   useEffect(() => {
@@ -164,6 +166,16 @@ function SeleccionPicker({ onLoad, isMobile }) {
     setLoading(true); setError(null)
     listarSelecciones().then(setList).catch(e => setError(e.message)).finally(() => setLoading(false))
   }, [open])
+
+  const borrar = async id => {
+    setDeletingId(id); setError(null)
+    try {
+      await eliminarSeleccion(id)
+      setList(prev => prev.filter(s => s.id !== id))
+      setConfirmDel(null)
+    } catch (e) { setError(e.message) }
+    finally { setDeletingId(null) }
+  }
 
   useEffect(() => {
     if (!open) return
@@ -208,13 +220,32 @@ function SeleccionPicker({ onLoad, isMobile }) {
           ) : (
             <div style={{ maxHeight: 290, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
               {filtered.map(s => (
-                <button key={s.id} onClick={() => pick(s)} disabled={loadingId === s.id}
-                  style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 6, background: loadingId === s.id ? `${C.brand}10` : 'transparent', border: `1px solid ${C.border}`, cursor: loadingId === s.id ? 'default' : 'pointer' }}>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 700, color: C.brand }}>{s.codigo}</div>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, marginTop: 2 }}>
-                    {[s.etiqueta, s.cliente].filter(Boolean).join(' · ')}{(s.etiqueta || s.cliente) ? ' · ' : ''}{s.nItems} ítem{s.nItems !== 1 ? 's' : ''}
-                  </div>
-                </button>
+                <div key={s.id} style={{ display: 'flex', alignItems: 'stretch', gap: 4, border: `1px solid ${C.border}`, borderRadius: 6, overflow: 'hidden' }}>
+                  <button onClick={() => pick(s)} disabled={loadingId === s.id}
+                    style={{ flex: 1, textAlign: 'left', padding: '8px 10px', background: loadingId === s.id ? `${C.brand}10` : 'transparent', border: 'none', cursor: loadingId === s.id ? 'default' : 'pointer' }}>
+                    <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 700, color: C.brand }}>{s.codigo}</div>
+                    <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: C.muted, marginTop: 2 }}>
+                      {[s.etiqueta, s.cliente].filter(Boolean).join(' · ')}{(s.etiqueta || s.cliente) ? ' · ' : ''}{s.nItems} ítem{s.nItems !== 1 ? 's' : ''}
+                    </div>
+                  </button>
+                  {confirmDel === s.id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 6px', background: `${C.danger}0d` }}>
+                      <button onClick={() => borrar(s.id)} disabled={deletingId === s.id} title="Confirmar eliminación"
+                        style={{ padding: '4px 8px', borderRadius: 5, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 600, background: C.danger, color: '#fff', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        {deletingId === s.id ? '…' : 'Sí'}
+                      </button>
+                      <button onClick={() => setConfirmDel(null)} disabled={deletingId === s.id} title="Cancelar"
+                        style={{ padding: '4px 8px', borderRadius: 5, fontFamily: 'Inter, sans-serif', fontSize: 11, background: C.card, color: C.muted, border: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                        No
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDel(s.id)} title="Eliminar esta agrupación COD.SELECT.SOLPED"
+                      style={{ padding: '0 12px', background: 'transparent', border: 'none', borderLeft: `1px solid ${C.border}`, color: C.danger, cursor: 'pointer', fontSize: 14 }}>
+                      🗑
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           )}
